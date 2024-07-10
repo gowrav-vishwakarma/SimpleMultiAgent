@@ -31,7 +31,7 @@ framework:
 
   tool_extract_methods:
     - name: json_format
-      regexp: 'USE_TOOL:\s*(\{.*?\})'
+      regexp: 'USE_TOOL:\s*(\{.*?\}(?:\s*\{.*?\})*)'
       parse_method: json
     - name: named_with_json
       regexp: 'USE_TOOL:\s*(\w+)\s+with\s+(\{.*?\})'

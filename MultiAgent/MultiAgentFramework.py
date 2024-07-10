@@ -4,7 +4,7 @@ import logging
 import os
 import json
 import yaml
-from typing import Dict, List, Any, Callable
+from typing import Dict, List, Any, Callable, Optional
 from enum import Enum
 import re
 import openai
@@ -42,6 +42,7 @@ class LLMConfig:
 
     def get_config(self):
         return self.config
+
 
 class LLMManager:
     def __init__(self, config: dict):
@@ -83,9 +84,9 @@ class LLMManager:
         return response['message']['content']
 
 
-
 class Agent:
-    def __init__(self, name: str, prompt: str, role: str, llm_config: Dict, use_pre_prompt: bool = True, use_post_prompt: bool = True, tools: List[Callable] = None):
+    def __init__(self, name: str, prompt: str, role: str, llm_config: Dict, use_pre_prompt: bool = True,
+                 use_post_prompt: bool = True, tools: List[Callable] = None):
         self.name = name
         self.prompt = prompt
         self.role = role
@@ -97,7 +98,6 @@ class Agent:
         self.thought_process = []
         self.role_knowledge = {}
         self.agent_connections = []
-
 
     def add_tool(self, tool: Callable):
         self.tools.append(tool)
@@ -163,14 +163,13 @@ class MultiAgentFramework:
         self.json_manager = JSONManager(base_path)
         self.llm_manager = LLMManager(self.config)
         self.examples: Dict[str, str] = {}
-        self.load_components()
         self.debug_mode = debug_mode
         self._setup_logging()
         self.agent_colors = {}
+        self.loaded_tool_names = set()  # Add this line
         self._initialize_agent_colors()
         self._initialized = True
-
-
+        self.load_components()
 
 
     def _setup_logging(self):
@@ -209,13 +208,10 @@ class MultiAgentFramework:
                 if not available_colors:
                     available_colors = [Fore.RED, Fore.GREEN, Fore.YELLOW, Fore.BLUE, Fore.MAGENTA, Fore.CYAN]
 
-
     def _debug_print(self, agent_name: str, message: str, message_type: str = "INFO"):
         if self.debug_mode:
             color = self.agent_colors.get(agent_name, Fore.WHITE)
             print(f"{color}[{agent_name}] {Style.BRIGHT}{message_type}: {Style.NORMAL}{message}{Style.RESET_ALL}")
-
-
 
     def _load_config(self):
         config_path = os.path.join(self.base_path, "config.yaml")
@@ -289,26 +285,26 @@ class MultiAgentFramework:
             for file in files:
                 if file.endswith(".py"):
                     tool_name = os.path.splitext(file)[0]
-                    module_path = os.path.join(root, file)
+                    if tool_name not in self.loaded_tool_names:
+                        module_path = os.path.join(root, file)
 
-                    try:
-                        spec = importlib.util.spec_from_file_location(tool_name, module_path)
-                        module = importlib.util.module_from_spec(spec)
-                        spec.loader.exec_module(module)
+                        try:
+                            spec = importlib.util.spec_from_file_location(tool_name, module_path)
+                            module = importlib.util.module_from_spec(spec)
+                            spec.loader.exec_module(module)
 
-                        # Look for functions in the module
-                        for name, obj in inspect.getmembers(module):
-                            if inspect.isfunction(obj) and not name.startswith('_'):
+                            if hasattr(module, 'main'):
                                 full_tool_name = f"default_{tool_name}" if is_default else tool_name
                                 self.tools[full_tool_name] = {
-                                    "function": obj,
-                                    "description": obj.__doc__ or "No description available",
-                                    "params": str(inspect.signature(obj)),
+                                    "function": module.main,
+                                    "description": module.main.__doc__ or "No description available",
                                     "is_default": is_default
                                 }
+                                self.loaded_tool_names.add(tool_name)
                                 print(f"Loaded tool: {full_tool_name} ({'default' if is_default else 'custom'})")
-                    except Exception as e:
-                        print(f"Error loading tool {tool_name}: {str(e)}")
+                        except Exception as e:
+                            print(f"Error loading tool {tool_name}: {str(e)}")
+
     def load_agents(self):
         agents_path = os.path.join(self.base_path, "Agents")
         for root, _, files in os.walk(agents_path):
@@ -373,7 +369,19 @@ class MultiAgentFramework:
 
     def update_agent_prompts(self):
         other_agents_info = {name: agent.role for name, agent in self.agents.items()}
-        tools_info = {name: f"({tool['description']}, {tool['params']})" for name, tool in self.tools.items()}
+
+        def get_tool_info(tool):
+            description = tool.get('description', 'No description available')
+            if 'params' in tool:
+                params = tool['params']
+            else:
+                # Get the function signature if 'params' is not available
+                func = tool['function']
+                signature = inspect.signature(func)
+                params = str(signature)
+            return f"({description}, {params})"
+
+        tools_info = {name: get_tool_info(tool) for name, tool in self.tools.items()}
 
         for agent in self.agents.values():
             updated_prompt = agent.prompt.replace("$otherAgents", json.dumps(other_agents_info, indent=2))
@@ -393,7 +401,6 @@ class MultiAgentFramework:
                 print(f"Warning: The following example files were not found: {', '.join(remaining_placeholders)}")
 
             agent.prompt = updated_prompt
-
 
     def load_role_knowledge(self):
         knowledge_path = os.path.join(self.base_path, "RoleKnowledge")
@@ -428,7 +435,8 @@ class MultiAgentFramework:
             current_agent = next_agent
             conversation_step += 1
 
-            human_input = input(f"\n{Fore.WHITE}{Back.BLUE}Proceed to next agent ({current_agent.name})? Press Enter to continue or type 'stop' to end: {Style.RESET_ALL}")
+            human_input = input(
+                f"\n{Fore.WHITE}{Back.BLUE}Proceed to next agent ({current_agent.name})? Press Enter to continue or type 'stop' to end: {Style.RESET_ALL}")
             if human_input.lower() == 'stop':
                 self._debug_print("SYSTEM", "Conversation finished by user request.", "END")
                 break
@@ -449,7 +457,6 @@ class MultiAgentFramework:
         for thought in result['thoughts']:
             print(f"{color}- {thought}")
         print(f"\n{color}Next Action: {result['next_action']}{Style.RESET_ALL}")
-
 
     def _determine_starting_agent(self, initial_input: str) -> Agent:
         # Logic to determine the starting agent based on initial input
@@ -522,7 +529,6 @@ class MultiAgentFramework:
             self.logger.warning(f"Tool {tool_name} not found in available tools.")
             return f"Error: Tool {tool_name} not found"
 
-
     def _parse_json_tool(self, json_str: str) -> Dict[str, Any]:
         try:
             tool_dict = json.loads(json_str)
@@ -531,10 +537,11 @@ class MultiAgentFramework:
             else:
                 self.logger.warning(f"Unexpected JSON format: {json_str}")
                 return None
-        except json.JSONDecodeError:
+        except json.JSONDecodeError as e:
             self.logger.warning(f"Failed to parse JSON: {json_str}")
+            self.logger.debug(f"JSON decode error: {str(e)}")
+            self.logger.debug(f"Problematic JSON string: {json_str}")
             return None
-
     def _parse_json_with_name_tool(self, tool_name: str, json_str: str) -> Dict[str, Any]:
         try:
             params = json.loads(json_str)
@@ -584,6 +591,7 @@ class MultiAgentFramework:
 
             self.logger.warning("No matching tool extraction method found.")
         return None
+
     def _extract_next_action(self, llm_output: str) -> Dict[str, Any]:
         next_agent_match = re.search(r'NEXT_AGENT:\s*(\w+)', llm_output, re.IGNORECASE)
         if next_agent_match:
@@ -598,10 +606,21 @@ class MultiAgentFramework:
         pre_prompt = self.config.get('framework', {}).get('pre_prompt', '') if agent.use_pre_prompt else ''
         post_prompt = self.config.get('framework', {}).get('post_prompt', '') if agent.use_post_prompt else ''
 
+        def get_tool_info(tool):
+            description = tool.get('description', 'No description available')
+            if 'params' in tool:
+                params = tool['params']
+            else:
+                # Get the function signature if 'params' is not available
+                func = tool['function']
+                signature = inspect.signature(func)
+                params = str(signature)
+            return f"({description}, {params})"
+
         # Prepare the replacement dictionary
         replacements = {
             "$otherAgents": json.dumps({name: a.role for name, a in self.agents.items() if a != agent}, indent=2),
-            "$tools": json.dumps({name: f"({tool['description']}, {tool['params']})" for name, tool in self.tools.items()}, indent=2),
+            "$tools": json.dumps({name: get_tool_info(tool) for name, tool in self.tools.items()}, indent=2),
             "{agent.name}": agent.name,
             "{agent.role}": agent.role,
             "{agent.memory}": json.dumps(agent.memory[-5:] if agent.memory else [], indent=2),
@@ -683,7 +702,8 @@ class MultiAgentFramework:
 
         while True:
             try:
-                choice = int(input("\nPlease select the next agent number, 0 to finish the conversation, or -1 to continue with the current agent: "))
+                choice = int(input(
+                    "\nPlease select the next agent number, 0 to finish the conversation, or -1 to continue with the current agent: "))
                 if choice == 0:
                     return None  # Finish the conversation
                 elif choice == -1:
@@ -694,8 +714,8 @@ class MultiAgentFramework:
                     print("Invalid choice. Please try again.")
             except ValueError:
                 print("Please enter a valid number.")
+
     def _get_human_input(self, agent_name: str, current_data: Any) -> Any:
         print(f"\n--- Human Input Required for Agent: {agent_name} ---")
         print(f"Current Data: {current_data}")
         return input("Please provide your input or press Enter to continue: ")
-
