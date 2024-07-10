@@ -81,6 +81,7 @@ class LLMManager:
         # Extract Ollama-specific parameters
         model = config.get('model', self.config['llm']['ollama']['default_model'])
         temperature = config.get('temperature', 0.7)  # Default to 0.7 if not specified
+        stream = config.get('stream', self.config['llm']['ollama'].get('stream', False))  # Default to False if not specified anywhere
 
         # Prepare the options dictionary
         options = {
@@ -93,10 +94,22 @@ class LLMManager:
         response = self.ollama_client.chat(
             model=model,
             messages=[{"role": "user", "content": prompt}],
-            stream=False,
+            stream=stream,
             options=options  # Pass the options to the chat method
         )
-        return response['message']['content']
+
+        if stream:
+            # Handle streaming response
+            full_response = ""
+            for chunk in response:
+                if 'message' in chunk and 'content' in chunk['message']:
+                    full_response += chunk['message']['content']
+                    print(chunk['message']['content'], end='', flush=True)  # Print each chunk as it arrives
+            print()  # Print a newline at the end
+            return full_response
+        else:
+            # Handle non-streaming response
+            return response['message']['content']
 
 
 class Agent:

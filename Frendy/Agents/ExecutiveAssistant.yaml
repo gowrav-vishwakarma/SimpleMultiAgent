@@ -21,3 +21,4 @@ llm_config:
   model: phi3:latest
   temperature: 0.3
   max_tokens: 1000
+  stream: true
