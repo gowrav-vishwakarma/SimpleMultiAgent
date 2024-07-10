@@ -1,0 +1,5 @@
+{
+  "programming_languages": ["Python", "JavaScript", "Java"],
+  "frameworks": ["Django", "React", "Spring Boot"],
+  "best_practices": ["Clean Code", "SOLID Principles", "Test-Driven Development"]
+}

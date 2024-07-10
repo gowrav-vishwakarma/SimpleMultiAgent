@@ -1,0 +1,23 @@
+framework:
+  base_path: ./
+  default_agent: InitialAgent
+
+llm:
+  openai:
+    api_key: ${OPENAI_API_KEY}
+    default_model: gpt-3.5-turbo
+  ollama:
+    api_base: http://localhost:11434
+    default_model: openhermes:latest
+
+agents:
+  - DeveloperAgent
+  - DesignerAgent
+  - ProductManagerAgent
+
+tools_path: ./Tools
+role_knowledge_path: ./RoleKnowledge
+
+logging:
+  level: INFO
+  file: framework.log
