@@ -13,21 +13,22 @@ framework:
     When given a task, think through the problem step-by-step, consider the roles and capabilities of other agents, and use the available tools when necessary. Provide detailed explanations of your thought process and decisions.
 
   post_prompt: >
-      Role: {agent.role}
-      Previous Context: {agent.memory}
-      Knowledge: {agent.role_knowledge}
-      Current Input: {input_data}
-  
-      Task: Process the input based on your role, knowledge, and the instructions above. 
-      Provide your thoughts and any necessary JSON updates.
-      Suggest the next action or agent to handle the task.
-    
-      Format your response as follows:
-      THOUGHTS: [Your reasoning process]
-      USE_TOOL: [Optional: Specify a tool to use, {"tool_name": {"parameter": "value", "parameter": "value"} } ]
-      NEXT_ACTION: [Suggest the next action or agent, e.g., NEXT_AGENT: DeveloperAgent or FINISH if the task is complete]
-  
-      Begin your response now:
+    Role: {agent.role}
+    Previous Context: {agent.memory}
+    Knowledge: {agent.role_knowledge}
+    Current Input: {input_data}
+
+    Task: Process the input based on your role, knowledge, and the instructions above. 
+    If there are any tool results, analyze and incorporate them into your response.
+    Provide your thoughts and any necessary JSON updates.
+    Suggest the next action or agent to handle the task.
+
+    Format your response as follows:
+    THOUGHTS: [Your reasoning process, including analysis of any tool results]
+    USE_TOOL: [Optional: Specify a tool to use, {"tool_name": {"parameter": "value", "parameter": "value"} } ]
+    NEXT_ACTION: [Suggest the next action or agent, e.g., NEXT_AGENT: DeveloperAgent or FINISH if the task is complete]
+
+    Begin your response now:
 
   tool_extract_methods:
     - name: json_format

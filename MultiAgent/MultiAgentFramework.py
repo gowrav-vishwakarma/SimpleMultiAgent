@@ -242,9 +242,9 @@ class MultiAgentFramework:
         while True:
             print(f"\nProcessing with agent: {current_agent.name}")
             result = self._process_agent(current_agent, current_data)
-            current_data = result.get('output', current_data)
+            current_data = result.get('input_data', result.get('output', current_data))  # Use input_data if available
 
-            print(f"Agent {current_agent.name} output: {current_data}")
+            print(f"Agent {current_agent.name} output: {result['output']}")
 
             next_agent = self._determine_next_agent(result)
             if next_agent is None:
@@ -493,7 +493,9 @@ class MultiAgentFramework:
             else:
                 agent.add_thought(f"Used tool {tool_name}: {tool_result}")
                 self._debug_print(agent.name, f"Tool result: {tool_result}", "TOOL_RESULT")
-                input_data = tool_result
+                # Incorporate tool result into the output
+                llm_output += f"\n\nTool Result: {tool_result}"
+                input_data = f"{input_data}\n\nTool Result: {tool_result}"
 
         for file_path, update_data in json_updates.items():
             self.json_manager.update_json(file_path, update_data)
@@ -668,6 +670,11 @@ class MultiAgentFramework:
         {pre_prompt}
         {agent_prompt}
         {post_prompt}
+    
+        Previous Input and Tool Results:
+        {input_data}
+    
+        Please process the above information and provide your response:
         """
 
         return prompt
