@@ -4,7 +4,7 @@ import logging
 import os
 import json
 import yaml
-from typing import Dict, List, Any, Callable, Optional
+from typing import Dict, List, Any, Callable, Optional, Tuple
 from enum import Enum
 import re
 import openai
@@ -66,6 +66,7 @@ class LLMManager:
             raise ValueError(f"Unsupported or unconfigured LLM type: {llm_type}")
 
     def _call_openai(self, config: dict, prompt: str) -> str:
+        print(f"Calling OpenAi")
         response = self.openai_client.chat.completions.create(
             model=config.get('model', self.config['llm']['openai']['default_model']),
             messages=[{"role": "user", "content": prompt}],
@@ -75,7 +76,7 @@ class LLMManager:
         return response.choices[0].message.content
 
     def _call_ollama(self, config: dict, prompt: str) -> str:
-        print(f"Calling Ollama with prompt: {prompt}")
+        print(f"Calling Ollama")
         response = self.ollama_client.chat(
             model=config.get('model', self.config['llm']['ollama']['default_model']),
             messages=[{"role": "user", "content": prompt}],
@@ -170,7 +171,6 @@ class MultiAgentFramework:
         self._initialize_agent_colors()
         self._initialized = True
         self.load_components()
-
 
     def _setup_logging(self):
         # Set up root logger
@@ -459,7 +459,7 @@ class MultiAgentFramework:
         print(f"\n{color}Next Action: {result['next_action']}{Style.RESET_ALL}")
 
     def _determine_starting_agent(self, initial_input: str) -> Agent:
-        # Logic to determine the starting agent based on initial input
+        # Logic to determine the starting agent based on initial inputexe
         # For simplicity, we'll start with a default agent
         return self.agents.get("InitialAgent", next(iter(self.agents.values())))
 
@@ -481,15 +481,17 @@ class MultiAgentFramework:
             agent.add_thought(thought)
             self._debug_print(agent.name, f"Thought: {thought}", "THOUGHT")
 
-        tool_to_use = self._extract_tool_to_use(llm_output)
-        if tool_to_use:
-            self._debug_print(agent.name, f"Using tool: {tool_to_use['name']}", "TOOL")
-            tool_result = self._execute_tool(tool_to_use, self.tools)
+        tool_info = self._extract_tool_to_use(llm_output)
+        if tool_info:
+            tool_name, tool_params = tool_info
+            self._debug_print(agent.name, f"Using tool: {tool_name}", "TOOL")
+            self._debug_print(agent.name, f"Tool parameters: {tool_params}", "TOOL_PARAMS")
+            tool_result = self._execute_tool(tool_name, tool_params, self.tools)
             if isinstance(tool_result, str) and tool_result.startswith("Error:"):
-                agent.add_thought(f"Failed to use tool {tool_to_use['name']}: {tool_result}")
+                agent.add_thought(f"Failed to use tool {tool_name}: {tool_result}")
                 self._debug_print(agent.name, f"Tool execution failed: {tool_result}", "TOOL_ERROR")
             else:
-                agent.add_thought(f"Used tool {tool_to_use['name']}: {tool_result}")
+                agent.add_thought(f"Used tool {tool_name}: {tool_result}")
                 self._debug_print(agent.name, f"Tool result: {tool_result}", "TOOL_RESULT")
                 input_data = tool_result
 
@@ -514,10 +516,7 @@ class MultiAgentFramework:
         self._debug_print(agent.name, f"Processing complete. Next action: {next_action}", "END")
         return result
 
-    def _execute_tool(self, tool_to_use: Dict[str, Any], available_tools: Dict[str, Dict[str, Any]]) -> Any:
-        tool_name = next(iter(tool_to_use))
-        tool_params = tool_to_use[tool_name]
-
+    def _execute_tool(self, tool_name: str, tool_params: Dict[str, Any], available_tools: Dict[str, Dict[str, Any]]) -> Any:
         if tool_name in available_tools:
             tool = available_tools[tool_name]['function']
             try:
@@ -531,8 +530,13 @@ class MultiAgentFramework:
 
     def _parse_json_tool(self, json_str: str) -> Dict[str, Any]:
         try:
+            # # Remove any leading/trailing whitespace and extra closing braces
+            # json_str = json_str.strip().rstrip('}')
+
+            # Parse the JSON string
             tool_dict = json.loads(json_str)
-            if len(tool_dict) == 1 and isinstance(next(iter(tool_dict.values())), dict):
+
+            if isinstance(tool_dict, dict):
                 return tool_dict
             else:
                 self.logger.warning(f"Unexpected JSON format: {json_str}")
@@ -540,8 +544,8 @@ class MultiAgentFramework:
         except json.JSONDecodeError as e:
             self.logger.warning(f"Failed to parse JSON: {json_str}")
             self.logger.debug(f"JSON decode error: {str(e)}")
-            self.logger.debug(f"Problematic JSON string: {json_str}")
             return None
+
     def _parse_json_with_name_tool(self, tool_name: str, json_str: str) -> Dict[str, Any]:
         try:
             params = json.loads(json_str)
@@ -565,31 +569,51 @@ class MultiAgentFramework:
                 params[key] = value
         return params
 
-    def _extract_tool_to_use(self, llm_output: str) -> Optional[Dict[str, Any]]:
-        extract_methods = self.config['framework'].get('tool_extract_methods', [])
+    def _extract_tool_to_use(self, llm_output: str) -> Optional[Tuple[str, Dict[str, Any]]]:
+        # Flatten the input by replacing newlines with spaces
+        flattened_output = re.sub(r'\s+', ' ', llm_output)
 
+        extract_methods = self.config['framework'].get('tool_extract_methods', [])
         for method in extract_methods:
             self.logger.debug(f"Attempting to extract tool using method: {method['name']}")
             regexp = method['regexp']
             parse_method = method['parse_method']
+            tool_name_extractor = method['tool_name_extractor']
+            params_extractor = method['params_extractor']
 
-            match = re.search(regexp, llm_output, re.DOTALL | re.IGNORECASE)
+            match = re.search(regexp, flattened_output, re.IGNORECASE)
             if match:
-                result = None
-                if parse_method == 'json':
-                    result = self._parse_json_tool(match.group(1))
-                elif parse_method == 'json_with_name':
-                    result = self._parse_json_with_name_tool(match.group(1), match.group(2))
-                elif parse_method == 'key_value_with_name':
-                    result = self._parse_key_value_with_name_tool(match.group(1), match.group(2))
+                full_match = match.group(1)
+                self.logger.debug(f"Full match: {full_match}")
 
-                if result:
-                    self.logger.info(f"Tool successfully extracted using method: {method['name']}")
-                    return result
+                tool_name_match = re.search(tool_name_extractor, full_match)
+                params_match = re.search(params_extractor, full_match, re.DOTALL)
+
+                if tool_name_match and params_match:
+                    tool_name = tool_name_match.group(1)
+                    params_str = params_match.group(1)
+                    self.logger.debug(f"Extracted tool name: {tool_name}")
+                    self.logger.debug(f"Extracted params: {params_str}")
+
+                    params = None
+                    if parse_method == 'json':
+                        params = self._parse_json_tool(params_str)
+                    elif parse_method == 'json_with_name':
+                        params = self._parse_json_with_name_tool(tool_name, params_str)
+                    elif parse_method == 'key_value_with_name':
+                        params = self._parse_key_value_with_name_tool(tool_name, params_str)
+
+                    if params:
+                        self.logger.info(f"Tool successfully extracted using method: {method['name']}")
+                        return tool_name, params
+                    else:
+                        self.logger.debug(f"Method {method['name']} matched but failed to parse parameters.")
                 else:
-                    self.logger.debug(f"Method {method['name']} matched but failed to parse.")
+                    self.logger.debug(f"Failed to extract tool name or params using method: {method['name']}")
+            else:
+                self.logger.debug(f"Regexp didn't match for method: {method['name']}")
 
-            self.logger.warning("No matching tool extraction method found.")
+        self.logger.warning("No matching tool extraction method found.")
         return None
 
     def _extract_next_action(self, llm_output: str) -> Dict[str, Any]:

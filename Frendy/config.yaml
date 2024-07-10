@@ -24,21 +24,27 @@ framework:
     
       Format your response as follows:
       THOUGHTS: [Your reasoning process]
-      USE_TOOL: [Optional: Specify a tool to use, {"tool_name": {"parameter": "value", "parameter": "value"}}]
+      USE_TOOL: [Optional: Specify a tool to use, {"tool_name": {"parameter": "value", "parameter": "value"} } ]
       NEXT_ACTION: [Suggest the next action or agent, e.g., NEXT_AGENT: DeveloperAgent or FINISH if the task is complete]
   
       Begin your response now:
 
   tool_extract_methods:
     - name: json_format
-      regexp: 'USE_TOOL:\s*(\{.*?\}(?:\s*\{.*?\})*)'
+      regexp: 'USE_TOOL:\s*(\{(?:[^{}]|\{(?:[^{}]|\{[^{}]*\})*\})*\})'
       parse_method: json
+      tool_name_extractor: '"(\w+)"'
+      params_extractor: ':\s*(\{.*?\})(?=\s*\})'  # Changed this line
     - name: named_with_json
-      regexp: 'USE_TOOL:\s*(\w+)\s+with\s+(\{.*?\})'
+      regexp: 'USE_TOOL:\s*(\w+)\s+with\s+(\{(?:[^{}]|\{(?:[^{}]|\{[^{}]*\})*\})*\})'
       parse_method: json_with_name
+      tool_name_extractor: '^(\w+)'
+      params_extractor: '(\{.*\})$'
     - name: named_with_key_value
       regexp: 'USE_TOOL:\s*(\w+)\s+with\s+(.+)'
       parse_method: key_value_with_name
+      tool_name_extractor: '^(\w+)'
+      params_extractor: '(?<=with\s)(.+)$'
 
 llm:
   openai:
