@@ -77,10 +77,24 @@ class LLMManager:
 
     def _call_ollama(self, config: dict, prompt: str) -> str:
         print(f"Calling Ollama")
+
+        # Extract Ollama-specific parameters
+        model = config.get('model', self.config['llm']['ollama']['default_model'])
+        temperature = config.get('temperature', 0.7)  # Default to 0.7 if not specified
+
+        # Prepare the options dictionary
+        options = {
+            "temperature": temperature,
+            # You can add other Ollama-specific parameters here, such as:
+            # "top_p": config.get('top_p', 1.0),
+            # "top_k": config.get('top_k', 40),
+        }
+
         response = self.ollama_client.chat(
-            model=config.get('model', self.config['llm']['ollama']['default_model']),
+            model=model,
             messages=[{"role": "user", "content": prompt}],
-            stream=False
+            stream=False,
+            options=options  # Pass the options to the chat method
         )
         return response['message']['content']
 
@@ -725,8 +739,8 @@ class MultiAgentFramework:
 
     def _handle_human_intervention(self, result: Dict[str, Any]) -> Agent:
         print("\n--- Human Intervention Required ---")
-        print(f"Current Agent: {result.get('agent')}")
-        print(f"Current Output: {result.get('output')}")
+        # print(f"Current Agent: {result.get('agent')}")
+        # print(f"Current Output: {result.get('output')}")
         print("\nAvailable Agents:")
         for idx, (agent_name, agent) in enumerate(self.agents.items(), 1):
             print(f"{idx}. {agent_name} ({agent.role})")
