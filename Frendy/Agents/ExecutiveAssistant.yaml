@@ -14,6 +14,8 @@ tools:
   - GoogleSearch
 pre_prompt: true
 post_prompt: true
+agentConnections:
+  - SummarizerAgent
 llm_config:
 #  type: openai
 #  model: gpt-3.5-turbo

@@ -104,9 +104,9 @@ prompt: >
   When given a task, think through the problem step-by-step, consider the roles and capabilities of other agents, and use the available tools when necessary. Provide detailed explanations of your thought process and decisions.
 tools:
   - GoogleSearch
-pre_prompt: true
-post_prompt: true
-llm_config:
+pre_prompt: true # Include pre_prompt: true if you want to use the global pre_prompt from main config.yaml
+post_prompt: true # Include post_prompt: true if you want to use the global post_prompt from main config.yaml
+llm_config: # Override LLM settings for this agent, type must be one of defined in main config.yaml
   type: ollama
   model: phi3:latest
   temperature: 0.3
@@ -138,7 +138,7 @@ The `config.yaml` file in the project root directory contains the main configura
 framework:
   base_path: ./
   default_agent: InitialAgent
-  pre_prompt: >
+  pre_prompt: > # Used to set the initial context for all agents, prefixed with agent's prompt 
     You are an experienced Executive Assistant. Your task is to manage communication and coordination between team members, stakeholders, and clients.
 
     Other agents you can collaborate with:
@@ -148,7 +148,7 @@ framework:
     $tools
 
     When given a task, think through the problem step-by-step, consider the roles and capabilities of other agents, and use the available tools when necessary. Provide detailed explanations of your thought process and decisions.
-  post_prompt: >
+  post_prompt: > # Used to set the final context for all agents, suffixed with agent's prompt
     Role: {agent.role}
     Previous Context: {agent.memory}
     Knowledge: {agent.role_knowledge}
