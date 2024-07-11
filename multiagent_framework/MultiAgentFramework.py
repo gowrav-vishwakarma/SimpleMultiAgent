@@ -64,6 +64,9 @@ class LLMManager:
     def call_llm(self, llm_config: dict, prompt: str) -> str:
         llm_type = llm_config.get('type', '').lower()
 
+        # log the prompt like output if verbosity is debug
+
+
         if llm_type == 'openai' and self.openai_client:
             return self._call_openai(llm_config, prompt)
         elif llm_type == 'ollama' and self.ollama_client:
@@ -82,7 +85,7 @@ class LLMManager:
         return response.choices[0].message.content
 
     def _call_ollama(self, config: dict, prompt: str) -> str:
-        print(f"Calling Ollama")
+        # print(f"Calling Ollama")
 
         # Extract Ollama-specific parameters
         model = config.get('model', self.config['llm']['ollama']['default_model'])
@@ -358,7 +361,7 @@ class MultiAgentFramework:
                             spec.loader.exec_module(module)
 
                             if hasattr(module, 'main'):
-                                full_tool_name = f"default_{tool_name}" if is_default else tool_name
+                                full_tool_name = f"{tool_name}" if is_default else tool_name
                                 self.tools[full_tool_name] = {
                                     "function": module.main,
                                     "description": module.main.__doc__ or "No description available",
@@ -551,12 +554,13 @@ class MultiAgentFramework:
                 input_data = f"{rag_context}\n\nCurrent input: {input_data}"
 
         llm_input = self._prepare_llm_input(agent, input_data)
-        self._log(LogLevel.DEBUG, agent.name, f"LLM input prepared", "LLM_INPUT")
+        self._log(LogLevel.DEBUG, agent.name, f"LLM input prepared: \n {llm_input}", "LLM_INPUT")
 
         llm_output = self.llm_manager.call_llm(agent.llm_config, llm_input)
-        self._log(LogLevel.DEBUG, agent.name, f"LLM output received", "LLM_OUTPUT")
+        if not agent.llm_config.get('stream', False):
+            self._log(LogLevel.DEBUG, agent.name, f"LLM output received: {llm_output}", "LLM_OUTPUT")
 
-        self._log_llm_io(agent, llm_input, llm_output)
+        # self._log_llm_io(agent, llm_input, llm_output)
 
         thoughts = self._extract_thoughts(llm_output)
         json_updates = self._extract_json_updates(llm_output)
@@ -584,8 +588,11 @@ class MultiAgentFramework:
                 input_data = f"{input_data}\n\nTool Result: {tool_result}"
 
             llm_input = self._prepare_llm_input(agent, input_data)
+            self._log(LogLevel.DEBUG, agent.name, f"LLM input prepared with tool results: \n {llm_input}", "LLM_INPUT")
             llm_output = self.llm_manager.call_llm(agent.llm_config, llm_input)
-            self._log(LogLevel.DEBUG, agent.name, f"Updated LLM output:\n{llm_output}", "UPDATED_LLM_OUTPUT")
+
+            if not agent.llm_config.get('stream', False):
+                self._log(LogLevel.DEBUG, agent.name, f"Updated LLM output received: {llm_output}", "LLM_OUTPUT")
 
             thoughts.extend(self._extract_thoughts(llm_output))
             json_updates.update(self._extract_json_updates(llm_output))

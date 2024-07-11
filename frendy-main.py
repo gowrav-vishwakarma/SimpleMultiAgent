@@ -1,6 +1,7 @@
 # File: main.py
 import argparse
 import yaml
+import sys
 from dotenv import load_dotenv
 from multiagent_framework.MultiAgentFramework import MultiAgentFramework, LogLevel
 
@@ -17,11 +18,18 @@ def main():
         "debug": LogLevel.DEBUG
     }
 
+    # Set verbosity to DEBUG if running in debug mode
+    if __debug__:
+        print("Running in debug mode. Setting verbosity to DEBUG.")
+        verbosity = LogLevel.DEBUG
+    else:
+        verbosity = verbosity_map[args.verbosity]
+
     # Load environment variables
     load_dotenv()
 
     # Get the singleton instance of the framework
-    framework = MultiAgentFramework('./Frendy/', verbosity=verbosity_map[args.verbosity])
+    framework = MultiAgentFramework('./Frendy/', verbosity=verbosity)
 
     # Start a new conversation
     initial_prompt = input("Enter your initial prompt to start the conversation: ")

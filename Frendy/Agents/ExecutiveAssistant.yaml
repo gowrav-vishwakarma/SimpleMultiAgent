@@ -23,7 +23,7 @@ llm_config:
 #  model: gpt-3.5-turbo
   type: ollama
   model: phi3:latest
-  temperature: 0.3
+  temperature: 0.1
   max_tokens: 1000
   stream: true
 rag_config:

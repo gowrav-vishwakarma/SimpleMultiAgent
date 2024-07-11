@@ -10,6 +10,8 @@ framework:
     Tools at your disposal:
     $tools
   
+    Please make sure you know what a tool is and what an agent is. do not try to use them interchangeable.
+  
     When given a task, think through the problem step-by-step, consider the roles and capabilities of other agents, and use the available tools when necessary. Provide detailed explanations of your thought process and decisions.
 
   post_prompt: >
