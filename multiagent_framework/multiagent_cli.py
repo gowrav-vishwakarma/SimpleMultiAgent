@@ -6,7 +6,7 @@ import os
 import shutil
 import yaml
 from dotenv import load_dotenv
-from MultiAgent.MultiAgentFramework import MultiAgentFramework
+from multiagent_framework.MultiAgentFramework import MultiAgentFramework
 
 def create_new_project(project_name):
     template_path = os.path.join(os.path.dirname(__file__), 'templates', 'project')
@@ -44,7 +44,7 @@ def run_conversation(project_path):
     print(yaml.dump(final_result, default_flow_style=False))
 
 def main():
-    parser = argparse.ArgumentParser(description="MultiAgent Framework CLI")
+    parser = argparse.ArgumentParser(description="multiagent_framework Framework CLI")
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
 
     # New project command

@@ -4,6 +4,7 @@
 .env
 
 # Virtual environment
+.venv/
 venv/
 bin/
 Scripts/

@@ -1,4 +1,4 @@
-from MultiAgent.rag_system import RAGManager
+from multiagent_framework.rag_system import RAGManager
 
 
 class MyCustomRAGManager(RAGManager):

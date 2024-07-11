@@ -10,7 +10,7 @@ import html2text
 # Add the project root to the Python path
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 sys.path.insert(0, project_root)
-from MultiAgent.MultiAgentFramework import MultiAgentFramework
+from multiagent_framework.MultiAgentFramework import MultiAgentFramework
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')

@@ -1,0 +1,30 @@
+[tool.poetry]
+name = "multiagent-framework"
+version = "0.0.1"
+description = "MultiAgent Framework is a powerful Python-based system for creating and managing multi-agent conversations and workflows. It supports multiple Language Model providers, custom tool integration, and includes a Retrieval-Augmented Generation (RAG) system. The framework enables seamless interaction between AI agents, making it ideal for complex task automation, interactive AI assistants, and decision support systems."
+authors = ["Gowrav Vishwakarma <gowravvishwkarma@gmail.com>"]
+license = "MIT"
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.12"
+chromadb = "0.5.4"
+colorama = "0.4.6"
+googlesearch-python = "1.2.4"
+html2text = "2024.2.26"
+ollama = "0.2.1"
+onnxruntime = "1.18.1"
+openai = "1.35.10"
+pydantic = "2.8.2"
+python-dotenv = "1.0.1"
+pyyaml = "6.0.1"
+requests = "2.32.3"
+setuptools = "70.3.0"
+uvicorn = "0.30.1"
+beautifulsoup4 = "4.12.3"
+numpy = "1.26.4"
+protobuf = "^3.20.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

@@ -42,7 +42,7 @@ The MultiAgent Framework comes with a powerful CLI tool for managing your projec
 To create a new project, use the following command:
 
 ```bash
-python -m MultiAgent.multiagent_cli new MyProject
+python -m multiagent_framework.multiagent_cli new MyProject
 ```
 
 This will create a new directory `MyProject` with the basic structure and configuration files needed for a MultiAgent project.
@@ -52,9 +52,9 @@ This will create a new directory `MyProject` with the basic structure and config
 You can add new components (Agents, Tools, or Examples) to an existing project using the `add` command:
 
 ```bash
-python -m MultiAgent.multiagent_cli add MyProject Agent MyNewAgent
-python -m MultiAgent.multiagent_cli add MyProject Tool MyNewTool
-python -m MultiAgent.multiagent_cli add MyProject Example MyNewExample
+python -m multiagent_framework.multiagent_cli add MyProject Agent MyNewAgent
+python -m multiagent_framework.multiagent_cli add MyProject Tool MyNewTool
+python -m multiagent_framework.multiagent_cli add MyProject Example MyNewExample
 ```
 
 ### Running a Conversation
@@ -62,7 +62,7 @@ python -m MultiAgent.multiagent_cli add MyProject Example MyNewExample
 To start a conversation in an existing project:
 
 ```bash
-python -m MultiAgent.multiagent_cli run ./MyProject
+python -m multiagent_framework.multiagent_cli run ./MyProject
 ```
 
 This command will initialize the framework with your project's configuration and prompt you for an initial input to start the conversation.

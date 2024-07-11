@@ -1,7 +1,7 @@
 # File: main.py
 import yaml
 from dotenv import load_dotenv
-from MultiAgent.MultiAgentFramework import MultiAgentFramework
+from multiagent_framework.MultiAgentFramework import MultiAgentFramework
 
 # Load environment variables
 load_dotenv()
