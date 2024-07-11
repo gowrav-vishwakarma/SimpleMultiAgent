@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-# File: multiagent_cli.py (This will be part of your library)
+# File: multiagent_cli.py
 
 import argparse
 import os
 import shutil
 import yaml
 from dotenv import load_dotenv
-from multiagent_framework.MultiAgentFramework import MultiAgentFramework
+from multiagent_framework.MultiAgentFramework import MultiAgentFramework, LogLevel
 
 def create_new_project(project_name):
     template_path = os.path.join(os.path.dirname(__file__), 'templates', 'project')
@@ -35,11 +35,16 @@ def create_new_component(project_name, component_type, component_name):
     shutil.copy(template_path, component_path)
     print(f"New {component_type} '{component_name}' created successfully in project '{project_name}'.")
 
-def run_conversation(project_path):
+def run_conversation(project_path, verbosity):
     load_dotenv()
-    framework = MultiAgentFramework(project_path, debug_mode=True)
+    verbosity_map = {
+        "user": LogLevel.USER,
+        "system": LogLevel.SYSTEM,
+        "debug": LogLevel.DEBUG
+    }
+    framework = MultiAgentFramework(project_path, verbosity=verbosity_map[verbosity])
     initial_prompt = input("Enter your initial prompt to start the conversation: ")
-    final_result = framework.start_conversation(initial_prompt)
+    final_result = framework.run_system(initial_prompt)
     print("\nFinal result:")
     print(yaml.dump(final_result, default_flow_style=False))
 
@@ -60,6 +65,7 @@ def main():
     # Run command
     run_parser = subparsers.add_parser("run", help="Run a conversation in an existing project")
     run_parser.add_argument("project_path", help="Path to the project")
+    run_parser.add_argument("--verbosity", choices=["user", "system", "debug"], default="user", help="Set the verbosity level")
 
     args = parser.parse_args()
 
@@ -68,7 +74,7 @@ def main():
     elif args.command == "add":
         create_new_component(args.project_name, args.component_type, args.component_name)
     elif args.command == "run":
-        run_conversation(args.project_path)
+        run_conversation(args.project_path, args.verbosity)
     else:
         parser.print_help()
 

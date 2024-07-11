@@ -16,11 +16,11 @@ framework:
     Role: {agent.role}
     Previous Context: {agent.memory}
     Knowledge: {agent.role_knowledge}
-    Current Input: {input_data}
+    Current Input Or Data Or Query You have to focus on: {input_data}
 
     Task: Process the input based on your role, knowledge, and the instructions above. 
     If there are any tool results, analyze and incorporate them into your response.
-    Provide your thoughts and any necessary JSON updates.
+    Provide your thoughts.
     Suggest the next action or agent to handle the task.
 
     Format your response as follows:
@@ -66,7 +66,7 @@ llm:
     default_model: gpt-3.5-turbo
   ollama:
     api_base: http://localhost:11434
-    default_model: llama3
+    default_model: phi3:latest
     stream: true
 
 agents:

@@ -22,7 +22,7 @@ llm_config:
 #  type: openai
 #  model: gpt-3.5-turbo
   type: ollama
-  model: llama3
+  model: phi3:latest
   temperature: 0.3
   max_tokens: 1000
   stream: true

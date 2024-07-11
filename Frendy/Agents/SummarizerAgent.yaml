@@ -27,7 +27,7 @@ pre_prompt: true
 post_prompt: true
 llm_config:
   type: ollama
-  model: llama3
+  model: phi3:latest
   temperature: 0.3
   max_tokens: 1000
   stream: true

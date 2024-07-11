@@ -5,7 +5,7 @@ import os
 import json
 import yaml
 from typing import Dict, List, Any, Callable, Optional, Tuple
-from enum import Enum
+from enum import Enum, auto
 import re
 import openai
 from ollama import Client as OllamaClient
@@ -17,6 +17,10 @@ from .rag_system import RAGSystem
 
 colorama.init(autoreset=True)
 
+class LogLevel(Enum):
+    USER = auto()
+    SYSTEM = auto()
+    DEBUG = auto()
 
 class PhaseType(Enum):
     THOUGHT = "THOUGHT"
@@ -191,13 +195,13 @@ class JSONManager:
 class MultiAgentFramework:
     _instance = None
 
-    def __new__(cls, base_path: str, debug_mode: bool = False):
+    def __new__(cls, base_path: str, verbosity: LogLevel = LogLevel.USER):
         if cls._instance is None:
             cls._instance = super(MultiAgentFramework, cls).__new__(cls)
             cls._instance._initialized = False
         return cls._instance
 
-    def __init__(self, base_path: str, debug_mode: bool = False):
+    def __init__(self, base_path: str, verbosity: LogLevel = LogLevel.USER):
         if self._initialized:
             return
         self.base_path = base_path
@@ -207,8 +211,7 @@ class MultiAgentFramework:
         self.json_manager = JSONManager(base_path)
         self.llm_manager = LLMManager(self.config)
         self.examples: Dict[str, str] = {}
-        self.debug_mode = debug_mode
-        self._setup_logging()
+        self.verbosity = verbosity
         self.agent_colors = {}
         self.loaded_tool_names = set()  # Add this line
         self._initialize_agent_colors()
@@ -221,30 +224,38 @@ class MultiAgentFramework:
             self.rag_system = RAGSystem(self.global_rag_config)
         self.load_components()
 
-    def _setup_logging(self):
-        # Set up root logger
-        root_logger = logging.getLogger()
-        root_logger.setLevel(logging.WARNING)  # Set to WARNING to suppress most library logs
+    def _log(self, level: LogLevel, agent_name: str, message: str, message_type: str = "INFO"):
+        if level.value <= self.verbosity.value:
+            color = self.agent_colors.get(agent_name, Fore.WHITE)
+            level_color = {
+                LogLevel.USER: Fore.GREEN,
+                LogLevel.SYSTEM: Fore.YELLOW,
+                LogLevel.DEBUG: Fore.CYAN
+            }.get(level, Fore.WHITE)
 
-        # Create our custom logger
-        self.logger = logging.getLogger(__name__)
-        self.logger.setLevel(logging.DEBUG if self.debug_mode else logging.INFO)
+            print(f"{level_color}[{level.name}] {color}[{agent_name}] {Style.BRIGHT}{message_type}: {Style.NORMAL}{message}{Style.RESET_ALL}")
 
-        # Create console handler with formatting
-        console_handler = logging.StreamHandler()
-        formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-        console_handler.setFormatter(formatter)
 
-        # Add console handler to our logger
-        self.logger.addHandler(console_handler)
+    def _log_agent_action(self, agent: Agent, action: str, details: str):
+        color = self.agent_colors.get(agent.name, Fore.WHITE)
+        print(f"\n{color}{'=' * 50}")
+        print(f"{color}Agent: {agent.name} ({agent.role})")
+        print(f"{color}Action: {action}")
+        print(f"{color}Details: {details}")
+        print(f"{color}{'=' * 50}{Style.RESET_ALL}")
 
-        # Disable propagation to root logger
-        self.logger.propagate = False
+    def _log_llm_io(self, agent: Agent, input_data: str, output_data: str):
+        if self.verbosity == LogLevel.DEBUG:
+            color = self.agent_colors.get(agent.name, Fore.WHITE)
+            print(f"\n{color}{'*' * 50}")
+            print(f"{color}LLM Input/Output for {agent.name}")
+            print(f"{color}{'*' * 50}")
+            print(f"{color}Input:")
+            print(f"{Fore.CYAN}{input_data}{Style.RESET_ALL}")
+            print(f"\n{color}Output:")
+            print(f"{Fore.MAGENTA}{output_data}{Style.RESET_ALL}")
+            print(f"{color}{'*' * 50}{Style.RESET_ALL}")
 
-        # Suppress specific loggers
-        logging.getLogger("openai").setLevel(logging.WARNING)
-        logging.getLogger("httpx").setLevel(logging.WARNING)
-        logging.getLogger("urllib3").setLevel(logging.WARNING)
 
     def _initialize_agent_colors(self):
         available_colors = [Fore.RED, Fore.GREEN, Fore.YELLOW, Fore.BLUE, Fore.MAGENTA, Fore.CYAN]
@@ -473,37 +484,38 @@ class MultiAgentFramework:
                             agent.set_role_knowledge(role_knowledge)
 
     def run_system(self, initial_input: str):
-        self._debug_print("SYSTEM", f"Starting system with initial input: {initial_input}", "START")
+        self._log(LogLevel.SYSTEM, "SYSTEM", f"Starting system with initial input: {initial_input}", "START")
         current_agent = self._determine_starting_agent(initial_input)
         current_data = initial_input
         conversation_step = 1
 
         while True:
-            self._print_step_header(conversation_step, current_agent)
-
-            # Add this line to show what's being passed to the agent
-            print(f"\n{Fore.CYAN}Passing to {current_agent.name}: {current_data[:100]}...{Style.RESET_ALL}")
+            self._log_agent_action(current_agent, "Processing", f"Step {conversation_step}")
+            self._log(LogLevel.USER, current_agent.name, f"Processing input: {current_data[:100]}...", "INPUT")
 
             result = self._process_agent(current_agent, current_data)
-            self._print_step_result(result)
+            self._log_agent_action(current_agent, "Output", result['output'][:100] + "...")
+
+            for thought in result['thoughts']:
+                self._log(LogLevel.SYSTEM, current_agent.name, f"Thought: {thought}", "THOUGHT")
 
             current_data = result.get('output', current_data)
             next_agent = self._determine_next_agent(result)
 
             if next_agent is None:
-                self._debug_print("SYSTEM", "Conversation finished.", "END")
+                self._log(LogLevel.SYSTEM, "SYSTEM", "Conversation finished.", "END")
                 break
 
-            # Add this line to show what's being passed to the next agent
-            print(f"\n{Fore.CYAN}Passing to next agent ({next_agent.name}): {current_data[:100]}...{Style.RESET_ALL}")
+            self._log(LogLevel.USER, "SYSTEM", f"Next agent: {next_agent.name}", "TRANSITION")
 
             current_agent = next_agent
             conversation_step += 1
 
-            human_input = input(f"\n{Fore.WHITE}{Back.BLUE}Proceed to next agent ({current_agent.name})? Press Enter to continue or type 'stop' to end: {Style.RESET_ALL}")
-            if human_input.lower() == 'stop':
-                self._debug_print("SYSTEM", "Conversation finished by user request.", "END")
-                break
+            if self.verbosity == LogLevel.USER:
+                human_input = input(f"\n{Fore.WHITE}{Back.BLUE}Press Enter to continue or type 'stop' to end: {Style.RESET_ALL}")
+                if human_input.lower() == 'stop':
+                    self._log(LogLevel.SYSTEM, "SYSTEM", "Conversation finished by user request.", "END")
+                    break
 
         return current_data
 
@@ -529,8 +541,8 @@ class MultiAgentFramework:
 
     def _process_agent(self, agent: Agent, input_data: Any) -> Dict[str, Any]:
         self.current_agent = agent
-        self._debug_print(agent.name, f"Processing agent", "START")
-        self._debug_print(agent.name, f"Input data: {input_data}", "INPUT")
+        # self._debug_print(agent.name, f"Processing agent", "START")
+        # self._debug_print(agent.name, f"Input data: {input_data}", "INPUT")
 
         if agent.rag_system:
             rag_results = agent.rag_system.retrieve_info(input_data)
@@ -539,10 +551,12 @@ class MultiAgentFramework:
                 input_data = f"{rag_context}\n\nCurrent input: {input_data}"
 
         llm_input = self._prepare_llm_input(agent, input_data)
-        self._debug_print(agent.name, f"LLM input:\n{llm_input}", "LLM_INPUT")
+        self._log(LogLevel.DEBUG, agent.name, f"LLM input prepared", "LLM_INPUT")
 
         llm_output = self.llm_manager.call_llm(agent.llm_config, llm_input)
-        self._debug_print(agent.name, f"LLM output:\n{llm_output}", "LLM_OUTPUT")
+        self._log(LogLevel.DEBUG, agent.name, f"LLM output received", "LLM_OUTPUT")
+
+        self._log_llm_io(agent, llm_input, llm_output)
 
         thoughts = self._extract_thoughts(llm_output)
         json_updates = self._extract_json_updates(llm_output)
@@ -550,32 +564,41 @@ class MultiAgentFramework:
 
         for thought in thoughts:
             agent.add_thought(thought)
-            self._debug_print(agent.name, f"Thought: {thought}", "THOUGHT")
+            self._log(LogLevel.DEBUG, agent.name, f"Thought: {thought}", "THOUGHT")
 
         tool_info = self._extract_tool_to_use(llm_output)
         if tool_info:
             tool_name, tool_params = tool_info
-            self._debug_print(agent.name, f"Using tool: {tool_name}", "TOOL")
-            self._debug_print(agent.name, f"Tool parameters: {tool_params}", "TOOL_PARAMS")
+            self._log(LogLevel.DEBUG, agent.name, f"Using tool: {tool_name}", "TOOL")
+            self._log(LogLevel.DEBUG, agent.name, f"Tool parameters: {tool_params}", "TOOL_PARAMS")
             tool_result = self._execute_tool(tool_name, tool_params, self.tools)
             if isinstance(tool_result, str) and tool_result.startswith("Error:"):
-                agent.add_thought(f"Failed to use tool {tool_name}: {tool_result}")
-                self._debug_print(agent.name, f"Tool execution failed: {tool_result}", "TOOL_ERROR")
+                error_message = f"Failed to use tool {tool_name}: {tool_result}"
+                agent.add_thought(error_message)
+                self._log(LogLevel.DEBUG, agent.name, f"Tool execution failed: {tool_result}", "TOOL_ERROR")
+                input_data = f"{input_data}\n\n{error_message}"
             else:
                 agent.add_thought(f"Used tool {tool_name}: {tool_result}")
-                self._debug_print(agent.name, f"Tool result: {tool_result}", "TOOL_RESULT")
-                # Incorporate tool result into the output
+                self._log(LogLevel.DEBUG, agent.name, f"Tool result: {tool_result}", "TOOL_RESULT")
                 llm_output += f"\n\nTool Result: {tool_result}"
                 input_data = f"{input_data}\n\nTool Result: {tool_result}"
 
+            llm_input = self._prepare_llm_input(agent, input_data)
+            llm_output = self.llm_manager.call_llm(agent.llm_config, llm_input)
+            self._log(LogLevel.DEBUG, agent.name, f"Updated LLM output:\n{llm_output}", "UPDATED_LLM_OUTPUT")
+
+            thoughts.extend(self._extract_thoughts(llm_output))
+            json_updates.update(self._extract_json_updates(llm_output))
+            next_action = self._extract_next_action(llm_output)
+
         for file_path, update_data in json_updates.items():
             self.json_manager.update_json(file_path, update_data)
-            self._debug_print(agent.name, f"Updated JSON file: {file_path}", "JSON_UPDATE")
+            self._log(LogLevel.DEBUG, agent.name, f"Updated JSON file: {file_path}", "JSON_UPDATE")
 
         if "HUMAN_INTERVENTION" in llm_output or not next_action:
             human_input = self._get_human_input(agent.name, input_data)
             agent.add_thought(f"Received human input: {human_input}")
-            self._debug_print(agent.name, f"Human input: {human_input}", "HUMAN_INPUT")
+            self._log(LogLevel.DEBUG, agent.name, f"Human input: {human_input}", "HUMAN_INPUT")
             input_data = human_input
 
         result = {
@@ -586,7 +609,7 @@ class MultiAgentFramework:
             'next_action': next_action
         }
         agent.add_memory(result)
-        self._debug_print(agent.name, f"Processing complete. Next action: {next_action}", "END")
+        self._log(LogLevel.SYSTEM, agent.name, f"Processing complete. Next action: {next_action}", "END")
         return result
 
     def _execute_tool(self, tool_name: str, tool_params: Dict[str, Any], available_tools: Dict[str, Dict[str, Any]]) -> Any:
@@ -595,10 +618,10 @@ class MultiAgentFramework:
             try:
                 return tool(tool_params,self, self.current_agent)
             except Exception as e:
-                self.logger.error(f"Error executing tool {tool_name}: {str(e)}")
+                self._log(LogLevel.SYSTEM, "SYSTEM", f"Error executing tool {tool_name}: {str(e)}", "ERROR")
                 return f"Error: {str(e)}"
         else:
-            self.logger.warning(f"Tool {tool_name} not found in available tools.")
+            self._log(LogLevel.SYSTEM, "SYSTEM", f"Tool {tool_name} not found in available tools.", "WARNING")
             return f"Error: Tool {tool_name} not found"
 
     def _parse_json_tool(self, json_str: str) -> Dict[str, Any]:
@@ -612,11 +635,11 @@ class MultiAgentFramework:
             if isinstance(tool_dict, dict):
                 return tool_dict
             else:
-                self.logger.warning(f"Unexpected JSON format: {json_str}")
+                self._log(LogLevel.SYSTEM, "SYSTEM", f"Unexpected JSON format: {json_str}", "WARNING")
                 return None
         except json.JSONDecodeError as e:
-            self.logger.warning(f"Failed to parse JSON: {json_str}")
-            self.logger.debug(f"JSON decode error: {str(e)}")
+            self._log(LogLevel.SYSTEM, "SYSTEM", f"Failed to parse JSON: {json_str}", "WARNING")
+            self._log(LogLevel.DEBUG, "SYSTEM", f"JSON decode error: {str(e)}", "ERROR")
             return None
 
     def _parse_json_with_name_tool(self, tool_name: str, json_str: str) -> Dict[str, Any]:
@@ -648,7 +671,7 @@ class MultiAgentFramework:
 
         extract_methods = self.config['framework'].get('tool_extract_methods', [])
         for method in extract_methods:
-            self.logger.debug(f"Attempting to extract tool using method: {method['name']}")
+            self._log(LogLevel.DEBUG, "SYSTEM", f"Attempting to extract tool using method: {method['name']}", "TOOL_EXTRACTION")
             regexp = method['regexp']
             parse_method = method['parse_method']
             tool_name_extractor = method['tool_name_extractor']
@@ -657,7 +680,7 @@ class MultiAgentFramework:
             match = re.search(regexp, flattened_output, re.IGNORECASE)
             if match:
                 full_match = match.group(1)
-                self.logger.debug(f"Full match: {full_match}")
+                self._log(LogLevel.DEBUG, "SYSTEM", f"Full match: {full_match}", "TOOL_EXTRACTION")
 
                 tool_name_match = re.search(tool_name_extractor, full_match)
                 params_match = re.search(params_extractor, full_match, re.DOTALL)
@@ -665,8 +688,9 @@ class MultiAgentFramework:
                 if tool_name_match and params_match:
                     tool_name = tool_name_match.group(1)
                     params_str = params_match.group(1)
-                    self.logger.debug(f"Extracted tool name: {tool_name}")
-                    self.logger.debug(f"Extracted params: {params_str}")
+                    self._log(LogLevel.DEBUG, "SYSTEM", f"Extracted tool name: {tool_name}", "TOOL_EXTRACTION")
+                    self._log(LogLevel.DEBUG, "SYSTEM", f"Extracted params: {params_str}", "TOOL_EXTRACTION")
+
 
                     params = None
                     if parse_method == 'json':
@@ -677,16 +701,16 @@ class MultiAgentFramework:
                         params = self._parse_key_value_with_name_tool(tool_name, params_str)
 
                     if params:
-                        self.logger.info(f"Tool successfully extracted using method: {method['name']}")
+                        self._log(LogLevel.SYSTEM, "SYSTEM", f"Tool successfully extracted using method: {method['name']}", "INFO")
                         return tool_name, params
                     else:
-                        self.logger.debug(f"Method {method['name']} matched but failed to parse parameters.")
+                        self._log(LogLevel.DEBUG, "SYSTEM", f"Method {method['name']} matched but failed to parse parameters.", "WARNING")
                 else:
-                    self.logger.debug(f"Failed to extract tool name or params using method: {method['name']}")
+                    self._log(LogLevel.DEBUG, "SYSTEM", f"Failed to extract tool name or params using method: {method['name']}", "WARNING")
             else:
-                self.logger.debug(f"Regexp didn't match for method: {method['name']}")
+                self._log(LogLevel.DEBUG, "SYSTEM", f"Regexp didn't match for method: {method['name']}", "INFO")
 
-        self.logger.warning("No matching tool extraction method found.")
+        self._log(LogLevel.SYSTEM, "SYSTEM", "No matching tool extraction method found.", "WARNING")
         return None
 
     def _extract_next_action(self, llm_output: str) -> Dict[str, Any]:
