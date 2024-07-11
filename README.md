@@ -21,6 +21,7 @@ MultiAgent Framework is a powerful and flexible system for creating and managing
    - [Tool Extraction Methods](#tool-extraction-methods)
    - [Pre and Post Prompts](#pre-and-post-prompts)
    - [LLM Integration](#llm-integration)
+   - [RAG (Retrieval-Augmented Generation)](#rag-retrieval-augmented-generation)
 6. [Contributing](#contributing)
 7. [License](#license)
 
@@ -85,6 +86,7 @@ MyProject/
 │   └── Example2.txt
 ├── RoleKnowledge/
 │   └── role_knowledge.json
+├── chroma_db/
 └── config.yaml
 ```
 
@@ -104,14 +106,30 @@ prompt: >
   When given a task, think through the problem step-by-step, consider the roles and capabilities of other agents, and use the available tools when necessary. Provide detailed explanations of your thought process and decisions.
 tools:
   - GoogleSearch
-pre_prompt: true # Include pre_prompt: true if you want to use the global pre_prompt from main config.yaml
-post_prompt: true # Include post_prompt: true if you want to use the global post_prompt from main config.yaml
-llm_config: # Override LLM settings for this agent, type must be one of defined in main config.yaml
+pre_prompt: true
+post_prompt: true
+agentConnections:
+  - SummarizerAgent
+color: "#FFA07A"
+llm_config:
   type: ollama
-  model: phi3:latest
+  model: llama3
   temperature: 0.3
   max_tokens: 1000
   stream: true
+rag_config:
+  enabled: true
+  vector_db:
+    type: "chromadb"
+    path: "./chroma_db"
+  embedding_model:
+    type: "default"
+  chunk_size: 1000
+  chunk_overlap: 200
+  default_retriever:
+    search_type: "similarity"
+    search_kwargs:
+      k: 5
 ```
 
 ### Creating Tools
@@ -119,7 +137,7 @@ llm_config: # Override LLM settings for this agent, type must be one of defined 
 Tools are Python scripts located in the `Tools/` directory. Each tool should have a `main` function that the framework will call. For example:
 
 ```python
-def main(params):
+def main(input_data, framework, current_agent):
     # Tool logic here
     return result
 ```
@@ -132,74 +150,11 @@ Examples are text files in the `Examples/` directory. They can be referenced in 
 
 ### Main Configuration File
 
-The `config.yaml` file in the project root directory contains the main configuration for the framework:
-
-```yaml
-framework:
-  base_path: ./
-  default_agent: InitialAgent
-  pre_prompt: > # Used to set the initial context for all agents, prefixed with agent's prompt 
-    You are an experienced Executive Assistant. Your task is to manage communication and coordination between team members, stakeholders, and clients.
-
-    Other agents you can collaborate with:
-    $otherAgents
-
-    Tools at your disposal:
-    $tools
-
-    When given a task, think through the problem step-by-step, consider the roles and capabilities of other agents, and use the available tools when necessary. Provide detailed explanations of your thought process and decisions.
-  post_prompt: > # Used to set the final context for all agents, suffixed with agent's prompt
-    Role: {agent.role}
-    Previous Context: {agent.memory}
-    Knowledge: {agent.role_knowledge}
-    Current Input: {input_data}
-    Task: Process the input based on your role, knowledge, and the instructions above.
-    If there are any tool results, analyze and incorporate them into your response.
-    Provide your thoughts and any necessary JSON updates.
-    Suggest the next action or agent to handle the task.
-    Format your response as follows:
-    THOUGHTS: [Your reasoning process, including analysis of any tool results]
-    USE_TOOL: [Optional: Specify a tool to use, {"tool_name": {"parameter": "value", "parameter": "value"} } ]
-    NEXT_ACTION: [Suggest the next action or agent, e.g., NEXT_AGENT: DeveloperAgent or FINISH if the task is complete]
-    Begin your response now:
-  tool_extract_methods:
-    - name: json_format
-      regexp: 'USE_TOOL:\s*(\{(?:[^{}]|\{(?:[^{}]|\{[^{}]*\})*\})*\})'
-      parse_method: json
-      tool_name_extractor: '"(\w+)"'
-      params_extractor: ':\s*(\{.*?\})(?=\s*\})'
-    - name: named_with_json
-      regexp: 'USE_TOOL:\s*(\w+)\s+with\s+(\{(?:[^{}]|\{(?:[^{}]|\{[^{}]*\})*\})*\})'
-      parse_method: json_with_name
-      tool_name_extractor: '^(\w+)'
-      params_extractor: '(\{.*\})$'
-    - name: named_with_key_value
-      regexp: 'USE_TOOL:\s*(\w+)\s+with\s+(.+)'
-      parse_method: key_value_with_name
-      tool_name_extractor: '^(\w+)'
-      params_extractor: '(?<=with\s)(.+)$'
-llm:
-  openai:
-    api_key: ${OPENAI_API_KEY}
-    default_model: gpt-3.5-turbo
-  ollama:
-    api_base: http://localhost:11434
-    default_model: phi3:latest
-    stream: true
-agents:
-  - DeveloperAgent
-  - DesignerAgent
-  - ProductManagerAgent
-tools_path: ./Tools
-role_knowledge_path: ./RoleKnowledge
-logging:
-  level: INFO
-  file: framework.log
-```
+The `config.yaml` file in the project root directory contains the main configuration for the framework. It includes settings for the framework, LLM integration, agents, tools, and RAG system.
 
 ### Agent Configuration
 
-Each agent is configured in its own YAML file within the `Agents/` directory. The configuration includes the agent's name, role, prompt, tools, and LLM settings.
+Each agent is configured in its own YAML file within the `Agents/` directory. The configuration includes the agent's name, role, prompt, tools, LLM settings, and RAG configuration.
 
 ## Advanced Features
 
@@ -220,6 +175,18 @@ The framework supports pre-prompts and post-prompts for each agent, which can be
 ### LLM Integration
 
 The framework supports multiple Language Model providers, including OpenAI and Ollama. You can configure the LLM settings in the main configuration file and override them for individual agents if needed.
+
+### RAG (Retrieval-Augmented Generation)
+
+The framework includes a Retrieval-Augmented Generation (RAG) system that enhances the agents' capabilities by providing relevant information from a vector database. The RAG system uses ChromaDB as the default vector store and can be configured globally or per agent.
+
+Key RAG features include:
+- Customizable vector database settings
+- Configurable embedding models
+- Adjustable chunk size and overlap for text processing
+- Flexible retrieval options
+
+You can also implement a custom RAG manager by specifying the `custom_rag_manager` path in the configuration.
 
 ## Contributing
 

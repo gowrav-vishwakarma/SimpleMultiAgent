@@ -12,6 +12,8 @@ from ollama import Client as OllamaClient
 import colorama
 from colorama import Fore, Back, Style
 import random
+from .rag_system import RAGSystem
+
 
 colorama.init(autoreset=True)
 
@@ -114,7 +116,7 @@ class LLMManager:
 
 class Agent:
     def __init__(self, name: str, prompt: str, role: str, llm_config: Dict, use_pre_prompt: bool = True,
-                 use_post_prompt: bool = True, tools: List[Callable] = None):
+                 use_post_prompt: bool = True, tools: List[Callable] = None, rag_config: Dict = None):
         self.name = name
         self.prompt = prompt
         self.role = role
@@ -126,6 +128,20 @@ class Agent:
         self.thought_process = []
         self.role_knowledge = {}
         self.agent_connections = []
+        self.rag_config = rag_config
+        self.rag_system = None  # Will be initialized when needed
+
+    def initialize_rag_system(self, global_rag_config: Dict):
+        if self.rag_config is None:
+            self.rag_config = global_rag_config
+        else:
+            # Merge agent-specific config with global config, prioritizing agent-specific settings
+            merged_config = global_rag_config.copy()
+            merged_config.update(self.rag_config)
+            self.rag_config = merged_config
+
+        if self.rag_config.get('enabled', False):
+            self.rag_system = RAGSystem(self.rag_config)
 
     def add_tool(self, tool: Callable):
         self.tools.append(tool)
@@ -197,6 +213,12 @@ class MultiAgentFramework:
         self.loaded_tool_names = set()  # Add this line
         self._initialize_agent_colors()
         self._initialized = True
+        self.global_rag_config = self.config['framework'].get('rag', {})
+        self.current_agent = None
+        self.global_rag_config = self.config['framework'].get('rag', {})
+        self.rag_system = None
+        if self.global_rag_config.get('enabled', False):
+            self.rag_system = RAGSystem(self.global_rag_config)
         self.load_components()
 
     def _setup_logging(self):
@@ -303,6 +325,10 @@ class MultiAgentFramework:
                         self.examples[example_name] = f.read().strip()
 
     def load_tools(self):
+        # Load tools from "./DefaultTools" directory from this file not from self.base_path
+        default_tools_path = os.path.join(os.path.dirname(__file__), "DefaultTools")
+        self._load_tools_from_directory(default_tools_path, is_default=True)
+
         # Load custom tools
         custom_tools_path = os.path.join(self.base_path, "Tools")
         self._load_tools_from_directory(custom_tools_path, is_default=False)
@@ -347,10 +373,15 @@ class MultiAgentFramework:
                     agent_connections = agent_config.get('agentConnections', [])
                     use_pre_prompt = agent_config.get('pre_prompt', True)
                     use_post_prompt = agent_config.get('post_prompt', True)
-                    agent = Agent(agent_name, prompt, role, llm_config, use_pre_prompt, use_post_prompt)
+                    rag_config = agent_config.get('rag_config')
+                    agent = Agent(agent_name, prompt, role, llm_config, use_pre_prompt, use_post_prompt,tool_names, rag_config)
                     agent.agent_connections = agent_connections
-                    agent.tools = tool_names  # Store tool names for validation
                     self.agents[agent_name] = agent
+
+        # Initialize RAG system for each agent
+        for agent in self.agents.values():
+            agent.initialize_rag_system(self.global_rag_config)
+
 
     def validate_and_update_agent_connections(self):
         undefined_agents = set()
@@ -449,6 +480,10 @@ class MultiAgentFramework:
 
         while True:
             self._print_step_header(conversation_step, current_agent)
+
+            # Add this line to show what's being passed to the agent
+            print(f"\n{Fore.CYAN}Passing to {current_agent.name}: {current_data[:100]}...{Style.RESET_ALL}")
+
             result = self._process_agent(current_agent, current_data)
             self._print_step_result(result)
 
@@ -459,11 +494,13 @@ class MultiAgentFramework:
                 self._debug_print("SYSTEM", "Conversation finished.", "END")
                 break
 
+            # Add this line to show what's being passed to the next agent
+            print(f"\n{Fore.CYAN}Passing to next agent ({next_agent.name}): {current_data[:100]}...{Style.RESET_ALL}")
+
             current_agent = next_agent
             conversation_step += 1
 
-            human_input = input(
-                f"\n{Fore.WHITE}{Back.BLUE}Proceed to next agent ({current_agent.name})? Press Enter to continue or type 'stop' to end: {Style.RESET_ALL}")
+            human_input = input(f"\n{Fore.WHITE}{Back.BLUE}Proceed to next agent ({current_agent.name})? Press Enter to continue or type 'stop' to end: {Style.RESET_ALL}")
             if human_input.lower() == 'stop':
                 self._debug_print("SYSTEM", "Conversation finished by user request.", "END")
                 break
@@ -491,8 +528,15 @@ class MultiAgentFramework:
         return self.agents.get("InitialAgent", next(iter(self.agents.values())))
 
     def _process_agent(self, agent: Agent, input_data: Any) -> Dict[str, Any]:
+        self.current_agent = agent
         self._debug_print(agent.name, f"Processing agent", "START")
         self._debug_print(agent.name, f"Input data: {input_data}", "INPUT")
+
+        if agent.rag_system:
+            rag_results = agent.rag_system.retrieve_info(input_data)
+            if rag_results:
+                rag_context = "\n".join([f"Relevant info: {result['content']}" for result in rag_results])
+                input_data = f"{rag_context}\n\nCurrent input: {input_data}"
 
         llm_input = self._prepare_llm_input(agent, input_data)
         self._debug_print(agent.name, f"LLM input:\n{llm_input}", "LLM_INPUT")
@@ -549,7 +593,7 @@ class MultiAgentFramework:
         if tool_name in available_tools:
             tool = available_tools[tool_name]['function']
             try:
-                return tool(tool_params)
+                return tool(tool_params,self, self.current_agent)
             except Exception as e:
                 self.logger.error(f"Error executing tool {tool_name}: {str(e)}")
                 return f"Error: {str(e)}"

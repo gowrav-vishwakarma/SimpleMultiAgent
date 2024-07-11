@@ -16,11 +16,28 @@ pre_prompt: true
 post_prompt: true
 agentConnections:
   - SummarizerAgent
+color:
+  - "#FFA07A"
 llm_config:
 #  type: openai
 #  model: gpt-3.5-turbo
   type: ollama
-  model: phi3:latest
+  model: llama3
   temperature: 0.3
   max_tokens: 1000
   stream: true
+rag_config:
+  enabled: true  # Can be set to false to disable RAG for this agent
+#  custom_rag_manager: "my_project.custom_rag.MyCustomRAGManager"
+  vector_db:
+      type: "chromadb"
+      path: "./chroma_db"
+  embedding_model:
+    type: "default"  # ChromaDB uses its own default embedding model
+  chunk_size: 1000
+  chunk_overlap: 200
+  default_retriever:
+    search_type: "similarity"
+    search_kwargs:
+      k: 5
+  custom_rag_manager: null  # Set this to the import path of a custom RAG manager class if needed

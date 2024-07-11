@@ -27,7 +27,9 @@ pre_prompt: true
 post_prompt: true
 llm_config:
   type: ollama
-  model: phi3:latest
+  model: llama3
   temperature: 0.3
   max_tokens: 1000
   stream: true
+rag_config:
+  enabled: false  # Disable RAG for this agent

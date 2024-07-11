@@ -16,6 +16,7 @@ from MultiAgent.MultiAgentFramework import MultiAgentFramework
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
+
 def extract_content(url):
     try:
         response = requests.get(url, timeout=10)
@@ -44,6 +45,7 @@ def extract_content(url):
         logger.warning(f"Error fetching content from {url}: {str(e)}")
         return "Error fetching content", f"Could not fetch content from {url}: {str(e)}"
 
+
 def GoogleSearch(query, num_results=5):
     logger.info(f"Starting Google Search for query: '{query}'")
 
@@ -66,26 +68,22 @@ def GoogleSearch(query, num_results=5):
     logger.info(f"Extracted content from {len(results)} search results")
     return results
 
-def main(input_data):
+
+def main(input_data, framework, current_agent):
     """
     Main function to search Google and return raw content, use like this {"GoogleSearch": {"query": "__query_here__"}}
     """
     logger.info("Starting main function of GoogleSearch tool")
-
     query = input_data.get('query')
     num_results = input_data.get('num_results', 5)
-
     if query is None:
         logger.error("The 'query' field is missing in the input data")
         raise ValueError("The 'query' field is required in the input data.")
-
     logger.info(f"Executing Google Search for query: '{query}'")
-
     result = GoogleSearch(query, num_results)
-
     logger.info("Google Search completed successfully")
-
     return result
+
 
 # Example usage:
 if __name__ == "__main__":

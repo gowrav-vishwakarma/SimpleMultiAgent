@@ -27,7 +27,6 @@ framework:
     THOUGHTS: [Your reasoning process, including analysis of any tool results]
     USE_TOOL: [Optional: Specify a tool to use, {"tool_name": {"parameter": "value", "parameter": "value"} } ]
     NEXT_ACTION: [Suggest the next action or agent, e.g., NEXT_AGENT: DeveloperAgent or FINISH if the task is complete]
-
     Begin your response now:
 
   tool_extract_methods:
@@ -46,6 +45,20 @@ framework:
       parse_method: key_value_with_name
       tool_name_extractor: '^(\w+)'
       params_extractor: '(?<=with\s)(.+)$'
+  rag:
+    enabled: true
+    vector_db:
+      type: "chromadb"
+      path: "./chroma_db"
+    embedding_model:
+      type: "default"  # ChromaDB uses its own default embedding model
+    chunk_size: 1000
+    chunk_overlap: 200
+    default_retriever:
+      search_type: "similarity"
+      search_kwargs:
+        k: 5
+    custom_rag_manager: null  # Set this to the import path of a custom RAG manager class if needed
 
 llm:
   openai:
@@ -53,7 +66,7 @@ llm:
     default_model: gpt-3.5-turbo
   ollama:
     api_base: http://localhost:11434
-    default_model: phi3:latest
+    default_model: llama3
     stream: true
 
 agents:
@@ -63,9 +76,6 @@ agents:
 
 tools_path: ./Tools
 role_knowledge_path: ./RoleKnowledge
-
-
-
 
 logging:
   level: INFO
