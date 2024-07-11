@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "multiagent-framework"
-version = "0.0.3"
+version = "0.0.4"
 description = "MultiAgent Framework is a powerful Python-based system for creating and managing multi-agent conversations and workflows. It supports multiple Language Model providers, custom tool integration, and includes a Retrieval-Augmented Generation (RAG) system. The framework enables seamless interaction between AI agents, making it ideal for complex task automation, interactive AI assistants, and decision support systems."
 authors = ["Gowrav Vishwakarma <gowravvishwkarma@gmail.com>"]
 license = "MIT"
