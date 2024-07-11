@@ -30,3 +30,5 @@ build/
 *.egg
 *.tar.gz
 *.whl
+
+concatenated_code.txt

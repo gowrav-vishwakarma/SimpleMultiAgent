@@ -1,17 +1,20 @@
 import importlib
 import inspect
-import logging
 import os
 import json
 import yaml
 from typing import Dict, List, Any, Callable, Optional, Tuple
 from enum import Enum, auto
 import re
-import openai
-from ollama import Client as OllamaClient
+
 import colorama
 from colorama import Fore, Back, Style
 import random
+
+from .Agent import Agent
+from .JSONManager import JSONManager
+from .LLMConfig import LLMConfig
+from .LLMManager import LLMManager
 from .rag_system import RAGSystem
 
 
@@ -27,172 +30,6 @@ class PhaseType(Enum):
     DRY_RUN = "DRY_RUN"
     FIND_BOTTLENECK = "FIND_BOTTLENECK"
     CORRECT = "CORRECT"
-
-
-class LLMConfig:
-    def __init__(self, config_path: str):
-        with open(config_path, 'r') as f:
-            self.config = yaml.safe_load(f)
-        self._apply_env_variables()
-
-    def _apply_env_variables(self):
-        def replace_env_vars(item):
-            if isinstance(item, dict):
-                return {k: replace_env_vars(v) for k, v in item.items()}
-            elif isinstance(item, str) and item.startswith('${') and item.endswith('}'):
-                env_var = item[2:-1]
-                return os.getenv(env_var, item)
-            return item
-
-        self.config = replace_env_vars(self.config)
-
-    def get_config(self):
-        return self.config
-
-
-class LLMManager:
-    def __init__(self, config: dict):
-        self.config = config
-        self.openai_client = None
-        self.ollama_client = None
-
-        if 'openai' in self.config['llm']:
-            self.openai_client = openai.OpenAI(api_key=self.config['llm']['openai']['api_key'])
-        if 'ollama' in self.config['llm']:
-            self.ollama_client = OllamaClient(host=self.config['llm']['ollama']['api_base'])
-
-    def call_llm(self, llm_config: dict, prompt: str) -> str:
-        llm_type = llm_config.get('type', '').lower()
-
-        # log the prompt like output if verbosity is debug
-
-
-        if llm_type == 'openai' and self.openai_client:
-            return self._call_openai(llm_config, prompt)
-        elif llm_type == 'ollama' and self.ollama_client:
-            return self._call_ollama(llm_config, prompt)
-        else:
-            raise ValueError(f"Unsupported or unconfigured LLM type: {llm_type}")
-
-    def _call_openai(self, config: dict, prompt: str) -> str:
-        print(f"Calling OpenAi")
-        response = self.openai_client.chat.completions.create(
-            model=config.get('model', self.config['llm']['openai']['default_model']),
-            messages=[{"role": "user", "content": prompt}],
-            temperature=config.get('temperature', 0.7),
-            max_tokens=config.get('max_tokens', 1000)
-        )
-        return response.choices[0].message.content
-
-    def _call_ollama(self, config: dict, prompt: str) -> str:
-        # print(f"Calling Ollama")
-
-        # Extract Ollama-specific parameters
-        model = config.get('model', self.config['llm']['ollama']['default_model'])
-        temperature = config.get('temperature', 0.7)  # Default to 0.7 if not specified
-        stream = config.get('stream', self.config['llm']['ollama'].get('stream', False))  # Default to False if not specified anywhere
-
-        # Prepare the options dictionary
-        options = {
-            "temperature": temperature,
-            # You can add other Ollama-specific parameters here, such as:
-            # "top_p": config.get('top_p', 1.0),
-            # "top_k": config.get('top_k', 40),
-        }
-
-        response = self.ollama_client.chat(
-            model=model,
-            messages=[{"role": "user", "content": prompt}],
-            stream=stream,
-            options=options  # Pass the options to the chat method
-        )
-
-        if stream:
-            # Handle streaming response
-            full_response = ""
-            for chunk in response:
-                if 'message' in chunk and 'content' in chunk['message']:
-                    full_response += chunk['message']['content']
-                    print(chunk['message']['content'], end='', flush=True)  # Print each chunk as it arrives
-            print()  # Print a newline at the end
-            return full_response
-        else:
-            # Handle non-streaming response
-            return response['message']['content']
-
-
-class Agent:
-    def __init__(self, name: str, prompt: str, role: str, llm_config: Dict, use_pre_prompt: bool = True,
-                 use_post_prompt: bool = True, tools: List[Callable] = None, rag_config: Dict = None):
-        self.name = name
-        self.prompt = prompt
-        self.role = role
-        self.llm_config = llm_config
-        self.use_pre_prompt = use_pre_prompt
-        self.use_post_prompt = use_post_prompt
-        self.tools = tools or []
-        self.memory = []
-        self.thought_process = []
-        self.role_knowledge = {}
-        self.agent_connections = []
-        self.rag_config = rag_config
-        self.rag_system = None  # Will be initialized when needed
-
-    def initialize_rag_system(self, global_rag_config: Dict):
-        if self.rag_config is None:
-            self.rag_config = global_rag_config
-        else:
-            # Merge agent-specific config with global config, prioritizing agent-specific settings
-            merged_config = global_rag_config.copy()
-            merged_config.update(self.rag_config)
-            self.rag_config = merged_config
-
-        if self.rag_config.get('enabled', False):
-            self.rag_system = RAGSystem(self.rag_config)
-
-    def add_tool(self, tool: Callable):
-        self.tools.append(tool)
-
-    def add_memory(self, item):
-        self.memory.append(item)
-
-    def add_thought(self, thought: str):
-        self.thought_process.append(thought)
-
-    def set_role_knowledge(self, knowledge: Dict):
-        self.role_knowledge = knowledge
-
-
-class JSONManager:
-    def __init__(self, base_path: str):
-        self.base_path = base_path
-        self.json_files = {}
-
-    def load_json(self, file_path: str) -> Dict:
-        full_path = os.path.join(self.base_path, file_path)
-        if os.path.exists(full_path):
-            with open(full_path, 'r') as f:
-                return json.load(f)
-        return {}
-
-    def save_json(self, file_path: str, data: Dict):
-        full_path = os.path.join(self.base_path, file_path)
-        os.makedirs(os.path.dirname(full_path), exist_ok=True)
-        with open(full_path, 'w') as f:
-            json.dump(data, f, indent=2)
-
-    def update_json(self, file_path: str, update_data: Dict):
-        current_data = self.load_json(file_path)
-        self._deep_update(current_data, update_data)
-        self.save_json(file_path, current_data)
-
-    def _deep_update(self, d: Dict, u: Dict):
-        for k, v in u.items():
-            if isinstance(v, dict):
-                d[k] = self._deep_update(d.get(k, {}), v)
-            else:
-                d[k] = v
-        return d
 
 
 class MultiAgentFramework:

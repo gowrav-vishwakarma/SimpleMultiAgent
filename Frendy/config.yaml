@@ -1,7 +1,7 @@
 framework:
   base_path: ./
   default_agent: InitialAgent
-  pre_prompt: >
+  pre_prompt: |
     You are an experienced Executive Assistant. Your task is to manage communication and coordination between team members, stakeholders, and clients.
   
     Other agents you can collaborate with:
@@ -14,7 +14,7 @@ framework:
   
     When given a task, think through the problem step-by-step, consider the roles and capabilities of other agents, and use the available tools when necessary. Provide detailed explanations of your thought process and decisions.
 
-  post_prompt: >
+  post_prompt: |
     Role: {agent.role}
     Previous Context: {agent.memory}
     Knowledge: {agent.role_knowledge}
