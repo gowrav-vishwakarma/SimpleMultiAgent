@@ -106,8 +106,8 @@ prompt: >
   When given a task, think through the problem step-by-step, consider the roles and capabilities of other agents, and use the available tools when necessary. Provide detailed explanations of your thought process and decisions.
 tools:
   - GoogleSearch  # List of tools this agent can use
-pre_prompt: true  # Whether to use the global pre_prompt
-post_prompt: true  # Whether to use the global post_prompt
+pre_prompt: true  # Whether to use the global pre_prompt as prefix
+post_prompt: true  # Whether to use the global post_prompt as suffix
 agentConnections:
   - SummarizerAgent  # Other agents this agent can interact with
 color: "#FFA07A"  # Color for console output
@@ -159,13 +159,39 @@ framework:
   base_path: ./
   default_agent: InitialAgent
   pre_prompt: >
-    # Global pre-prompt text
+    # Global pre-prompt text prefixed with each agent's prompt, override in agent to disable
   post_prompt: >
-    # Global post-prompt text
+    # Global post-prompt text appended to each agent's response, override in agent to disable
   tool_extract_methods:
-    # Configuration for different tool extraction methods
+    - name: json_format
+      regexp: 'USE_TOOL:\s*(\{(?:[^{}]|\{(?:[^{}]|\{[^{}]*\})*\})*\})'
+      parse_method: json
+      tool_name_extractor: '"(\w+)"'
+      params_extractor: ':\s*(\{.*?\})(?=\s*\})'  # Changed this line
+    - name: named_with_json
+      regexp: 'USE_TOOL:\s*(\w+)\s+with\s+(\{(?:[^{}]|\{(?:[^{}]|\{[^{}]*\})*\})*\})'
+      parse_method: json_with_name
+      tool_name_extractor: '^(\w+)'
+      params_extractor: '(\{.*\})$'
+    - name: named_with_key_value
+      regexp: 'USE_TOOL:\s*(\w+)\s+with\s+(.+)'
+      parse_method: key_value_with_name
+      tool_name_extractor: '^(\w+)'
+      params_extractor: '(?<=with\s)(.+)$'
   rag:
-    # Global RAG configuration
+    enabled: true
+    vector_db:
+      type: "chromadb"
+      path: "./chroma_db"
+    embedding_model:
+      type: "default"  # ChromaDB uses its own default embedding model
+    chunk_size: 1000
+    chunk_overlap: 200
+    default_retriever:
+      search_type: "similarity"
+      search_kwargs:
+        k: 5
+    custom_rag_manager: null  # Set this to the import path of a custom RAG manager class if needed
 llm:
   openai:
     api_key: ${OPENAI_API_KEY}
@@ -212,15 +238,91 @@ The framework supports multiple Language Model providers, including OpenAI and O
 
 ### RAG (Retrieval-Augmented Generation)
 
-The framework includes a Retrieval-Augmented Generation (RAG) system that enhances the agents' capabilities by providing relevant information from a vector database. The RAG system uses ChromaDB as the default vector store and can be configured globally or per agent.
+The MultiAgent Framework incorporates a powerful Retrieval-Augmented Generation (RAG) system that enhances the agents' capabilities by providing relevant information from a vector database. This feature allows agents to access and utilize a large knowledge base efficiently.
 
-Key RAG features include:
-- Customizable vector database settings
-- Configurable embedding models
-- Adjustable chunk size and overlap for text processing
-- Flexible retrieval options
+#### RAG Configuration
 
-You can also implement a custom RAG manager by specifying the `custom_rag_manager` path in the configuration.
+The RAG system can be configured globally in the main `config.yaml` file and can be overridden or customized for individual agents in their respective configuration files.
+
+Global RAG configuration example:
+
+```yaml
+framework:
+  rag:
+    enabled: true
+    vector_db:
+      type: "chromadb"
+      path: "./chroma_db"
+    embedding_model:
+      type: "default"
+    chunk_size: 1000
+    chunk_overlap: 200
+    default_retriever:
+      search_type: "similarity"
+      search_kwargs:
+        k: 5
+    custom_rag_manager: null  # Optional: Path to a custom RAG manager class
+```
+
+Agent-specific RAG configuration example:
+
+```yaml
+rag_config:
+  enabled: true
+  vector_db:
+    type: "chromadb"
+    path: "./agent_specific_db"
+  chunk_size: 500
+  chunk_overlap: 100
+```
+#### RAG Functionality
+The RAG system provides two main functions:
+
+#### Saving Information: 
+Agents can save information to the vector database for future retrieval.
+#### Retrieving Information: 
+Agents can query the vector database to retrieve relevant information based on a given query.
+
+#### Built-in RAG Tools
+The framework provides two default tools for interacting with the RAG system:
+
+SaveInfoRAG: Allows agents to save information to the RAG system.
+
+```Usage: {"SaveInfoRAG": {"content": "text to save", "tags": ["tag1", "tag2"]}}```
+
+RetrieveInfoRAG: Enables agents to retrieve information from the RAG system.
+
+```Usage: {"RetrieveInfoRAG": {"query": "search query", "tags": ["optional_tag1", "optional_tag2"]}}```
+
+#### Custom RAG Manager
+You can implement a custom RAG manager to use alternative vector databases or add specialized functionality:
+
+1. Create a custom RAG manager class that inherits from RAGManager.
+2. Implement the save_info and retrieve_info methods.
+3. Specify the path to your custom RAG manager in the configuration:
+
+```yaml
+framework:
+  rag:
+    custom_rag_manager: "your_module.YourCustomRAGManager"
+```
+
+#### RAG Integration in Agent Processing
+The RAG system is automatically integrated into the agent processing pipeline:
+
+Before processing an agent's input, the framework checks if the agent has a RAG system enabled.
+If enabled, it retrieves relevant information based on the input.
+The retrieved information is then prepended to the agent's input, providing additional context for the agent's decision-making process.
+
+This integration allows agents to leverage the knowledge stored in the vector database without explicit calls to the RAG system, enhancing their ability to provide informed responses and make better decisions.
+Benefits of RAG in the MultiAgent Framework
+
+- Enhanced Knowledge Access: Agents can access a vast amount of information beyond their initial training data. 
+- Improved Decision-Making: By retrieving relevant context, agents can make more informed decisions and provide more accurate responses. 
+- Dynamic Knowledge Base: The ability to save new information allows the system to grow and adapt over time. 
+- Flexible Integration: The RAG system can be easily customized or replaced to suit specific project needs.
+
+By leveraging the RAG system, the MultiAgent Framework provides a powerful tool for building more intelligent and adaptive multi-agent systems.
 
 ## Contributing
 
