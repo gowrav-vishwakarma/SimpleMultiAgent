@@ -62,10 +62,10 @@ python -m multiagent_framework.multiagent_cli add MyProject Example MyNewExample
 To start a conversation in an existing project:
 
 ```bash
-python -m multiagent_framework.multiagent_cli run ./MyProject
+python -m multiagent_framework.multiagent_cli run ./MyProject --verbosity user
 ```
 
-This command will initialize the framework with your project's configuration and prompt you for an initial input to start the conversation.
+This command will initialize the framework with your project's configuration and prompt you for an initial input to start the conversation. You can set the verbosity level to user, system, or debug.
 
 ## Framework Usage
 
@@ -105,19 +105,19 @@ prompt: >
   $tools
   When given a task, think through the problem step-by-step, consider the roles and capabilities of other agents, and use the available tools when necessary. Provide detailed explanations of your thought process and decisions.
 tools:
-  - GoogleSearch
-pre_prompt: true
-post_prompt: true
+  - GoogleSearch  # List of tools this agent can use
+pre_prompt: true  # Whether to use the global pre_prompt
+post_prompt: true  # Whether to use the global post_prompt
 agentConnections:
-  - SummarizerAgent
-color: "#FFA07A"
-llm_config:
+  - SummarizerAgent  # Other agents this agent can interact with
+color: "#FFA07A"  # Color for console output
+llm_config:  # Language Model configuration
   type: ollama
-  model: llama3
-  temperature: 0.3
+  model: phi3:latest
+  temperature: 0.1
   max_tokens: 1000
   stream: true
-rag_config:
+rag_config:  # Retrieval-Augmented Generation configuration
   enabled: true
   vector_db:
     type: "chromadb"
@@ -151,6 +151,40 @@ Examples are text files in the `Examples/` directory. They can be referenced in 
 ### Main Configuration File
 
 The `config.yaml` file in the project root directory contains the main configuration for the framework. It includes settings for the framework, LLM integration, agents, tools, and RAG system.
+
+Here's an example configuration:
+
+```yaml
+framework:
+  base_path: ./
+  default_agent: InitialAgent
+  pre_prompt: >
+    # Global pre-prompt text
+  post_prompt: >
+    # Global post-prompt text
+  tool_extract_methods:
+    # Configuration for different tool extraction methods
+  rag:
+    # Global RAG configuration
+llm:
+  openai:
+    api_key: ${OPENAI_API_KEY}
+    default_model: gpt-3.5-turbo
+  ollama:
+    api_base: http://localhost:11434
+    default_model: phi3:latest
+    stream: true
+agents:
+  - DeveloperAgent
+  - DesignerAgent
+  - ProductManagerAgent
+tools_path: ./Tools
+role_knowledge_path: ./RoleKnowledge
+logging:
+  level: INFO
+  file: framework.log
+```
+
 
 ### Agent Configuration
 
@@ -195,3 +229,9 @@ We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) f
 ## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+This updated README provides a comprehensive overview of your MultiAgent Framework, including its installation, CLI usage, framework usage, configuration options, and advanced features. It incorporates the latest changes and features from your code, such as the updated CLI commands, the new verbosity options, and the detailed configuration examples for both the main config and agent config files.
+
+The README now also includes more detailed explanations of the YAML configurations, helping users understand how to set up and customize their agents and the overall framework. It also highlights the flexibility of the framework in terms of LLM integration, tool extraction methods, and the RAG system.
+
+You can copy this entire README and use it as the new README.md file for your project. It should provide users with a clear understanding of how to use and configure your MultiAgent Framework.
