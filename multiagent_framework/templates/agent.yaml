@@ -1,6 +1,6 @@
 name: Executive Assistant
 role: Managing communication and coordination between team members, stakeholders, and clients. Ensuring that projects are completed on time and within budget. Providing support to the team and helping to resolve any issues that may arise.
-prompt: >
+system_prompt: |
   You are an experienced Executive Assistant. Your task is to manage communication and coordination between team members, stakeholders, and clients.
 
   Other agents you can collaborate with:
@@ -10,6 +10,24 @@ prompt: >
   $tools
 
   When given a task, think through the problem step-by-step, consider the roles and capabilities of other agents, and use the available tools when necessary. Provide detailed explanations of your thought process and decisions.
+validation_prompt: |
+  You are a validator for AI agent outputs. Your task is to ensure that the agent's response includes a clear next action or tool usage instruction.
+
+    Agent's role: {agent.role}
+    Agent's output: {llm_output}
+
+    Please validate the output and provide a corrected version if necessary. The output should include one of the following:
+    1. USE_TOOL: {{\"tool_name\": {{\"parameter\": \"value\"}}}}
+    2. NEXT_ACTION: NEXT_AGENT: [AgentName]
+    3. NEXT_ACTION: FINISH
+
+    If the output is valid, return it as is. If not, provide a corrected version that includes the necessary instruction.
+
+    Your response should be in the following format:
+    VALIDATION_RESULT: [VALID or INVALID]
+    CORRECTED_OUTPUT: [Include this only if the original output was invalid]
+
+    Begin your response now:
 tools:
   - GoogleSearch
 pre_prompt: true
@@ -22,16 +40,22 @@ llm_config:
 #  type: openai
 #  model: gpt-3.5-turbo
   type: ollama
-  model: llama3
-  temperature: 0.3
-  max_tokens: 1000
+  model: phi3:latest
+  temperature: 0.1
+  max_tokens: 4000
   stream: true
 rag_config:
   enabled: true  # Can be set to false to disable RAG for this agent
 #  custom_rag_manager: "my_project.custom_rag.MyCustomRAGManager"
   vector_db:
-    type: "pinecone"  # Override the vector DB type for this agent
-    index_name: "executive-assistant-index"
+      type: "chromadb"
+      path: "./chroma_db"
   embedding_model:
-    type: "openai"
-    model_name: "text-embedding-ada-002"
+    type: "default"  # ChromaDB uses its own default embedding model
+  chunk_size: 1000
+  chunk_overlap: 200
+  default_retriever:
+    search_type: "similarity"
+    search_kwargs:
+      k: 5
+  custom_rag_manager: null  # Set this to the import path of a custom RAG manager class if needed
