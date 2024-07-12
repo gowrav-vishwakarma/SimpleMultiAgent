@@ -2,33 +2,14 @@ framework:
   base_path: ./
   default_agent: InitialAgent
   pre_prompt: |
-    You are an experienced Executive Assistant. Your task is to manage communication and coordination between team members, stakeholders, and clients.
-  
-    Other agents you can collaborate with:
-    $otherAgents
-  
-    Tools at your disposal:
-    $tools
-  
-    Please make sure you know what a tool is and what an agent is. do not try to use them interchangeable.
-  
-    When given a task, think through the problem step-by-step, consider the roles and capabilities of other agents, and use the available tools when necessary. Provide detailed explanations of your thought process and decisions.
 
   post_prompt: |
-    Role: {agent.role}
-    Previous Context: {agent.memory}
-    Knowledge: {agent.role_knowledge}
-    Current Input Or Data Or Query You have to focus on: {input_data}
-
-    Task: Process the input based on your role, knowledge, and the instructions above. 
-    If there are any tool results, analyze and incorporate them into your response.
-    Provide your thoughts.
-    Suggest the next action or agent to handle the task.
-
+    
     Format your response as follows:
     THOUGHTS: [Your reasoning process, including analysis of any tool results]
     USE_TOOL: [Optional: Specify a tool to use, {"tool_name": {"parameter": "value", "parameter": "value"} } ]
-    NEXT_ACTION: [Suggest the next action or agent, e.g., NEXT_AGENT: DeveloperAgent or FINISH if the task is complete]
+    NEXT_AGENT: [AgentName] OR ExecutiveAssistant (Self)
+    NEXT_ACTION: FINISH OR CONTINUE
     Begin your response now:
 
   tool_extract_methods:

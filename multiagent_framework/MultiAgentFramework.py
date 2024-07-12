@@ -6,6 +6,7 @@ import yaml
 from typing import Dict, List, Any, Callable, Optional, Tuple
 from enum import Enum, auto
 import re
+import tiktoken
 
 import colorama
 from colorama import Fore, Back, Style
@@ -17,13 +18,14 @@ from .LLMConfig import LLMConfig
 from .LLMManager import LLMManager
 from .rag_system import RAGSystem
 
-
 colorama.init(autoreset=True)
+
 
 class LogLevel(Enum):
     USER = auto()
     SYSTEM = auto()
     DEBUG = auto()
+
 
 class PhaseType(Enum):
     THOUGHT = "THOUGHT"
@@ -60,6 +62,7 @@ class MultiAgentFramework:
         self.current_agent = None
         self.global_rag_config = self.config['framework'].get('rag', {})
         self.rag_system = None
+        self.tokenizer = tiktoken.get_encoding("cl100k_base")
         if self.global_rag_config.get('enabled', False):
             self.rag_system = RAGSystem(self.global_rag_config)
         self.load_components()
@@ -73,8 +76,8 @@ class MultiAgentFramework:
                 LogLevel.DEBUG: Fore.CYAN
             }.get(level, Fore.WHITE)
 
-            print(f"{level_color}[{level.name}] {color}[{agent_name}] {Style.BRIGHT}{message_type}: {Style.NORMAL}{message}{Style.RESET_ALL}")
-
+            print(
+                f"{level_color}[{level.name}] {color}[{agent_name}] {Style.BRIGHT}{message_type}: {Style.NORMAL}{message}{Style.RESET_ALL}")
 
     def _log_agent_action(self, agent: Agent, action: str, details: str):
         color = self.agent_colors.get(agent.name, Fore.WHITE)
@@ -95,7 +98,6 @@ class MultiAgentFramework:
             print(f"\n{color}Output:")
             print(f"{Fore.MAGENTA}{output_data}{Style.RESET_ALL}")
             print(f"{color}{'*' * 50}{Style.RESET_ALL}")
-
 
     def _initialize_agent_colors(self):
         available_colors = [Fore.RED, Fore.GREEN, Fore.YELLOW, Fore.BLUE, Fore.MAGENTA, Fore.CYAN]
@@ -158,9 +160,8 @@ class MultiAgentFramework:
         try:
             self.load_tools()
             self.load_agents()
-            self.load_examples()  # New method to load example files
+            self.load_examples()
             self.validate_and_update_agent_connections()
-            self.update_agent_prompts()
             self.load_role_knowledge()
         except ValueError as e:
             print(f"Error during component loading: {str(e)}")
@@ -217,23 +218,82 @@ class MultiAgentFramework:
                     agent_name = os.path.splitext(file)[0]
                     with open(os.path.join(root, file), 'r') as f:
                         agent_config = yaml.safe_load(f)
-                    prompt = agent_config.get('prompt', '')
+
+                    raw_system_prompt = agent_config.get('system_prompt', '')
+                    raw_validation_prompt = agent_config.get('validation_prompt', None)
+
                     role = agent_config.get('role', '')
                     tool_names = agent_config.get('tools', [])
                     llm_config = agent_config.get('llm_config', {})
-                    agent_connections = agent_config.get('agentConnections', [])
-                    use_pre_prompt = agent_config.get('pre_prompt', True)
-                    use_post_prompt = agent_config.get('post_prompt', True)
                     rag_config = agent_config.get('rag_config')
-                    agent = Agent(agent_name, prompt, role, llm_config, use_pre_prompt, use_post_prompt,tool_names, rag_config)
-                    agent.agent_connections = agent_connections
+
+                    agent = Agent(agent_name, raw_system_prompt, raw_validation_prompt, role, llm_config, tool_names, rag_config)
+                    agent.agent_connections = agent_config.get('agentConnections', [])
                     self.agents[agent_name] = agent
+                    self._log(LogLevel.DEBUG, "SYSTEM", f"Loaded agent: {agent_name}", "AGENT_LOAD")
 
-        # Initialize RAG system for each agent
-        for agent in self.agents.values():
-            agent.initialize_rag_system(self.global_rag_config)
+    # def update_agent_system_prompts(self):
+    #     for agent_name, agent in self.agents.items():
+    #         replacements = self._get_replacements(agent)
+    #         agent.system_prompt = self._apply_replacements(agent.system_prompt, replacements)
+    #         if agent.validation_prompt:
+    #             agent.validation_prompt = self._apply_replacements(agent.validation_prompt, replacements)
+    #         else:
+    #             self._log(LogLevel.DEBUG, agent_name, "No validation prompt specified", "PROMPT_UPDATE")
 
+    @staticmethod
+    def _apply_replacements(prompt: str, replacements: Dict[str, str]) -> str | None:
+        if prompt is None:
+            return None
+        for key, value in replacements.items():
+            prompt = prompt.replace(key, str(value))  # Convert value to string to ensure it's replaceable
+        return prompt
 
+    def _get_replacements(self, agent: Agent) -> Dict[str, str]:
+        def get_tool_info(tool):
+            description = tool.get('description', 'No description available')
+            if 'params' in tool:
+                params = tool['params']
+            else:
+                func = tool['function']
+                signature = inspect.signature(func)
+                params = str(signature)
+            return f"({description}, {params})"
+
+        replacements = {
+            "$otherAgents": json.dumps({name: a.role for name, a in self.agents.items() if a != agent}, indent=2),
+            "$tools": json.dumps({name: get_tool_info(tool) for name, tool in self.tools.items()}, indent=2),
+            "{agent.name}": agent.name,
+            "{agent.role}": agent.role,
+            "{agent.role_knowledge}": json.dumps(agent.role_knowledge, indent=2),
+        }
+        return replacements
+
+    def validate_agent_output(self, agent: Agent, llm_output: str) -> Dict[str, Any]:
+        if not agent.validation_prompt:
+            return {'valid': True, 'output': llm_output}  # Skip validation if no validation prompt is provided
+
+        validation_input = agent.validation_prompt.format(agent=agent, llm_output=llm_output)
+        validation_result = self.llm_manager.call_llm(agent.llm_config, validation_input)
+
+        result = {}
+        if "VALIDATION_RESULT: VALID" in validation_result:
+            result['valid'] = True
+            result['output'] = llm_output
+        else:
+            result['valid'] = False
+            corrected_output_match = re.search(r'CORRECTED_OUTPUT:(.*)', validation_result, re.DOTALL)
+            if corrected_output_match:
+                result['output'] = corrected_output_match.group(1).strip()
+            else:
+                result['output'] = llm_output  # Fallback to original output if no correction provided
+
+        # Ensure NEXT_AGENT instructions are preserved
+        next_agent_match = re.search(r'NEXT_AGENT:\s*(\w+)', result['output'], re.IGNORECASE)
+        if next_agent_match:
+            result['next_action'] = {"type": "NEXT_AGENT", "agent": next_agent_match.group(1)}
+
+        return result
     def validate_and_update_agent_connections(self):
         undefined_agents = set()
         undefined_tools = set()
@@ -276,40 +336,40 @@ class MultiAgentFramework:
                         updated_tools.append(self.tools[tool_name])
             agent.tools = updated_tools
 
-    def update_agent_prompts(self):
-        other_agents_info = {name: agent.role for name, agent in self.agents.items()}
-
-        def get_tool_info(tool):
-            description = tool.get('description', 'No description available')
-            if 'params' in tool:
-                params = tool['params']
-            else:
-                # Get the function signature if 'params' is not available
-                func = tool['function']
-                signature = inspect.signature(func)
-                params = str(signature)
-            return f"({description}, {params})"
-
-        tools_info = {name: get_tool_info(tool) for name, tool in self.tools.items()}
-
-        for agent in self.agents.values():
-            updated_prompt = agent.prompt.replace("$otherAgents", json.dumps(other_agents_info, indent=2))
-            updated_prompt = updated_prompt.replace("$tools", json.dumps(tools_info, indent=2))
-
-            # Replace #ExampleFile placeholders
-            for example_name, example_content in self.examples.items():
-                placeholder = f"#{example_name}"
-                if placeholder in updated_prompt:
-                    updated_prompt = updated_prompt.replace(placeholder, example_content)
-                else:
-                    print(f"Warning: Example file '{example_name}' not used in any prompt.")
-
-            # Check for any remaining #ExampleFile placeholders
-            remaining_placeholders = re.findall(r'#(\w+)', updated_prompt)
-            if remaining_placeholders:
-                print(f"Warning: The following example files were not found: {', '.join(remaining_placeholders)}")
-
-            agent.prompt = updated_prompt
+    # def update_agent_prompts(self):
+    #     other_agents_info = {name: agent.role for name, agent in self.agents.items()}
+    #
+    #     def get_tool_info(tool):
+    #         description = tool.get('description', 'No description available')
+    #         if 'params' in tool:
+    #             params = tool['params']
+    #         else:
+    #             # Get the function signature if 'params' is not available
+    #             func = tool['function']
+    #             signature = inspect.signature(func)
+    #             params = str(signature)
+    #         return f"({description}, {params})"
+    #
+    #     tools_info = {name: get_tool_info(tool) for name, tool in self.tools.items()}
+    #
+    #     for agent in self.agents.values():
+    #         updated_prompt = agent.prompt.replace("$otherAgents", json.dumps(other_agents_info, indent=2))
+    #         updated_prompt = updated_prompt.replace("$tools", json.dumps(tools_info, indent=2))
+    #
+    #         # Replace #ExampleFile placeholders
+    #         for example_name, example_content in self.examples.items():
+    #             placeholder = f"#{example_name}"
+    #             if placeholder in updated_prompt:
+    #                 updated_prompt = updated_prompt.replace(placeholder, example_content)
+    #             else:
+    #                 print(f"Warning: Example file '{example_name}' not used in any prompt.")
+    #
+    #         # Check for any remaining #ExampleFile placeholders
+    #         remaining_placeholders = re.findall(r'#(\w+)', updated_prompt)
+    #         if remaining_placeholders:
+    #             print(f"Warning: The following example files were not found: {', '.join(remaining_placeholders)}")
+    #
+    #         agent.prompt = updated_prompt
 
     def load_role_knowledge(self):
         knowledge_path = os.path.join(self.base_path, "RoleKnowledge")
@@ -339,16 +399,27 @@ class MultiAgentFramework:
             for thought in result['thoughts']:
                 self._log(LogLevel.SYSTEM, current_agent.name, f"Thought: {thought}", "THOUGHT")
 
-            current_data = result.get('output', current_data)
-            next_agent = self._determine_next_agent(result)
+            next_action = result.get('next_action', {})
 
-            if next_agent is None:
-                self._log(LogLevel.SYSTEM, "SYSTEM", "Conversation finished.", "END")
+            if next_action.get('type') == "FINISH":
+                self._log(LogLevel.SYSTEM, "SYSTEM", "Task completed.", "END")
                 break
+            elif next_action.get('type') == "NEXT_AGENT":
+                next_agent_name = next_action.get('agent')
+                next_agent = self.agents.get(next_agent_name)
+                if next_agent:
+                    self._log(LogLevel.USER, "SYSTEM", f"Handing over to agent: {next_agent.name}", "TRANSITION")
+                    current_agent = next_agent
+                    if result.get('last_tool_result'):
+                        current_data = f"Previous agent used tool: {result['last_tool_result']}\n\n{result['output']}"
+                    else:
+                        current_data = result['output']
+                else:
+                    self._log(LogLevel.SYSTEM, "SYSTEM", f"Warning: Specified next agent '{next_agent_name}' does not exist. Continuing with current agent.", "WARNING")
+                    current_data = result['output']
+            else:
+                current_data = result['output']
 
-            self._log(LogLevel.USER, "SYSTEM", f"Next agent: {next_agent.name}", "TRANSITION")
-
-            current_agent = next_agent
             conversation_step += 1
 
             if self.verbosity == LogLevel.USER:
@@ -379,10 +450,10 @@ class MultiAgentFramework:
         # For simplicity, we'll start with a default agent
         return self.agents.get("InitialAgent", next(iter(self.agents.values())))
 
-    def _process_agent(self, agent: Agent, input_data: Any) -> Dict[str, Any]:
+    def _process_agent(self, agent: Agent, input_data: Any, max_iterations: int = 5) -> Dict[str, Any]:
         self.current_agent = agent
-        # self._debug_print(agent.name, f"Processing agent", "START")
-        # self._debug_print(agent.name, f"Input data: {input_data}", "INPUT")
+        iteration_count = 0
+        tool_summary = None
 
         if agent.rag_system:
             rag_results = agent.rag_system.retrieve_info(input_data)
@@ -390,77 +461,117 @@ class MultiAgentFramework:
                 rag_context = "\n".join([f"Relevant info: {result['content']}" for result in rag_results])
                 input_data = f"{rag_context}\n\nCurrent input: {input_data}"
 
-        llm_input = self._prepare_llm_input(agent, input_data)
-        self._log(LogLevel.DEBUG, agent.name, f"LLM input prepared: \n {llm_input}", "LLM_INPUT")
+        agent.add_to_history("user", input_data)
 
-        llm_output = self.llm_manager.call_llm(agent.llm_config, llm_input)
-        if not agent.llm_config.get('stream', False):
-            self._log(LogLevel.DEBUG, agent.name, f"LLM output received: {llm_output}", "LLM_OUTPUT")
+        while iteration_count < max_iterations:
+            iteration_count += 1
+            self._log(LogLevel.DEBUG, agent.name, f"Processing iteration {iteration_count}", "ITERATION")
 
-        # self._log_llm_io(agent, llm_input, llm_output)
+            llm_input = self._prepare_llm_input(agent)
+            self._log(LogLevel.DEBUG, agent.name, f"LLM input prepared: \n {llm_input}", "LLM_INPUT")
 
-        thoughts = self._extract_thoughts(llm_output)
-        json_updates = self._extract_json_updates(llm_output)
-        next_action = self._extract_next_action(llm_output)
-
-        for thought in thoughts:
-            agent.add_thought(thought)
-            self._log(LogLevel.DEBUG, agent.name, f"Thought: {thought}", "THOUGHT")
-
-        tool_info = self._extract_tool_to_use(llm_output)
-        if tool_info:
-            tool_name, tool_params = tool_info
-            self._log(LogLevel.DEBUG, agent.name, f"Using tool: {tool_name}", "TOOL")
-            self._log(LogLevel.DEBUG, agent.name, f"Tool parameters: {tool_params}", "TOOL_PARAMS")
-            tool_result = self._execute_tool(tool_name, tool_params, self.tools)
-            if isinstance(tool_result, str) and tool_result.startswith("Error:"):
-                error_message = f"Failed to use tool {tool_name}: {tool_result}"
-                agent.add_thought(error_message)
-                self._log(LogLevel.DEBUG, agent.name, f"Tool execution failed: {tool_result}", "TOOL_ERROR")
-                input_data = f"{input_data}\n\n{error_message}"
-            else:
-                agent.add_thought(f"Used tool {tool_name}: {tool_result}")
-                self._log(LogLevel.DEBUG, agent.name, f"Tool result: {tool_result}", "TOOL_RESULT")
-                llm_output += f"\n\nTool Result: {tool_result}"
-                input_data = f"{input_data}\n\nTool Result: {tool_result}"
-
-            llm_input = self._prepare_llm_input(agent, input_data)
-            self._log(LogLevel.DEBUG, agent.name, f"LLM input prepared with tool results: \n {llm_input}", "LLM_INPUT")
             llm_output = self.llm_manager.call_llm(agent.llm_config, llm_input)
-
             if not agent.llm_config.get('stream', False):
-                self._log(LogLevel.DEBUG, agent.name, f"Updated LLM output received: {llm_output}", "LLM_OUTPUT")
+                self._log(LogLevel.DEBUG, agent.name, f"LLM output received: {llm_output}", "LLM_OUTPUT")
 
-            thoughts.extend(self._extract_thoughts(llm_output))
-            json_updates.update(self._extract_json_updates(llm_output))
+            # Validate the LLM output
+            validation_result = self.validate_agent_output(agent, llm_output)
+            if not validation_result['valid']:
+                self._log(LogLevel.DEBUG, agent.name, f"Invalid output detected. Using corrected output.", "VALIDATION")
+                llm_output = validation_result['output']
+
+            # Extract thoughts and update JSON
+            thoughts = self._extract_thoughts(llm_output)
+            for thought in thoughts:
+                agent.add_thought(thought)
+                self._log(LogLevel.DEBUG, agent.name, f"Thought: {thought}", "THOUGHT")
+
+            json_updates = self._extract_json_updates(llm_output)
+            for file_path, update_data in json_updates.items():
+                self.json_manager.update_json(file_path, update_data)
+                self._log(LogLevel.DEBUG, agent.name, f"Updated JSON file: {file_path}", "JSON_UPDATE")
+
+            # Process tool usage and next action
+            tool_info = self._extract_tool_to_use(llm_output)
             next_action = self._extract_next_action(llm_output)
 
-        for file_path, update_data in json_updates.items():
-            self.json_manager.update_json(file_path, update_data)
-            self._log(LogLevel.DEBUG, agent.name, f"Updated JSON file: {file_path}", "JSON_UPDATE")
+            if tool_info:
+                tool_name, tool_params = tool_info
+                self._log(LogLevel.DEBUG, agent.name, f"Using tool: {tool_name}", "TOOL")
+                self._log(LogLevel.DEBUG, agent.name, f"Tool parameters: {tool_params}", "TOOL_PARAMS")
+                tool_result = self._execute_tool(tool_name, tool_params, self.tools)
 
-        if "HUMAN_INTERVENTION" in llm_output or not next_action:
-            human_input = self._get_human_input(agent.name, input_data)
-            agent.add_thought(f"Received human input: {human_input}")
-            self._log(LogLevel.DEBUG, agent.name, f"Human input: {human_input}", "HUMAN_INPUT")
-            input_data = human_input
+                if isinstance(tool_result, str) and tool_result.startswith("Error:"):
+                    self._log(LogLevel.DEBUG, agent.name, f"Tool execution failed: {tool_result}", "TOOL_ERROR")
+                    tool_summary = f"TOOL_FAILED: {tool_name} - {tool_result}"
+                else:
+                    self._log(LogLevel.DEBUG, agent.name, f"Tool result: {tool_result}", "TOOL_RESULT")
+                    tool_summary = f"TOOL_USED: {tool_name} - Result: {tool_result}"
+
+                agent.add_to_history("tool", tool_summary)
+
+                # Safe replacement of USE_TOOL with TOOL_USED
+                def replace_use_tool(match):
+                    return tool_summary
+
+                llm_output = re.sub(r'USE_TOOL:.*', replace_use_tool, llm_output, flags=re.DOTALL)
+
+                if next_action.get('type') == "NEXT_AGENT":
+                    next_agent = next_action.get('agent')
+                    agent_handover_summary = f"AGENT_HANDOVER_TO: {next_agent} with tool result: {tool_summary}"
+                    agent.add_to_history("system", agent_handover_summary)
+
+                    # Safe replacement of NEXT_AGENT with AGENT_HANDOVER_TO
+                    def replace_next_agent(match):
+                        return agent_handover_summary
+
+                    llm_output = re.sub(r'NEXT_AGENT:.*', replace_next_agent, llm_output, flags=re.IGNORECASE)
+                    break
+                elif next_action.get('type') == "FINISH":
+                    agent.add_to_history("system", "TASK_COMPLETED")
+                    break
+                else:
+                    input_data = f"Previous action: {llm_output}\nTool result: {tool_summary}\nBased on this information, what's the next step?"
+                    break;
+
+            # If no tool was used, process next action
+            if next_action.get('type') == "NEXT_AGENT":
+                next_agent = next_action.get('agent')
+                agent_handover_summary = f"AGENT_HANDOVER_TO: {next_agent}"
+                agent.add_to_history("system", agent_handover_summary)
+                # Replace NEXT_AGENT with AGENT_HANDOVER_TO in llm_output
+                llm_output = re.sub(r'NEXT_AGENT:.*', agent_handover_summary, llm_output, flags=re.IGNORECASE)
+                break
+            elif next_action.get('type') == "FINISH":
+                agent.add_to_history("system", "TASK_COMPLETED")
+                break
+            else:
+                agent.add_to_history("assistant", llm_output)
+                break  # Exit the loop if no clear next action is specified
+
+        if iteration_count == max_iterations:
+            self._log(LogLevel.SYSTEM, agent.name, f"Reached maximum iterations ({max_iterations}). Forcing completion.", "MAX_ITERATIONS")
+            next_action = {"type": "FINISH"}
+
+        agent.summarize_history()
 
         result = {
             'agent': agent.name,
             'role': agent.role,
             'output': llm_output,
             'thoughts': agent.thought_process,
-            'next_action': next_action
+            'next_action': next_action,
+            'last_tool_result': tool_summary if tool_info else None
         }
-        agent.add_memory(result)
         self._log(LogLevel.SYSTEM, agent.name, f"Processing complete. Next action: {next_action}", "END")
         return result
 
-    def _execute_tool(self, tool_name: str, tool_params: Dict[str, Any], available_tools: Dict[str, Dict[str, Any]]) -> Any:
+    def _execute_tool(self, tool_name: str, tool_params: Dict[str, Any],
+                      available_tools: Dict[str, Dict[str, Any]]) -> Any:
         if tool_name in available_tools:
             tool = available_tools[tool_name]['function']
             try:
-                return tool(tool_params,self, self.current_agent)
+                return tool(tool_params, self, self.current_agent)
             except Exception as e:
                 self._log(LogLevel.SYSTEM, "SYSTEM", f"Error executing tool {tool_name}: {str(e)}", "ERROR")
                 return f"Error: {str(e)}"
@@ -468,12 +579,8 @@ class MultiAgentFramework:
             self._log(LogLevel.SYSTEM, "SYSTEM", f"Tool {tool_name} not found in available tools.", "WARNING")
             return f"Error: Tool {tool_name} not found"
 
-    def _parse_json_tool(self, json_str: str) -> Dict[str, Any]:
+    def _parse_json_tool(self, json_str: str) -> dict | None:
         try:
-            # # Remove any leading/trailing whitespace and extra closing braces
-            # json_str = json_str.strip().rstrip('}')
-
-            # Parse the JSON string
             tool_dict = json.loads(json_str)
 
             if isinstance(tool_dict, dict):
@@ -486,19 +593,20 @@ class MultiAgentFramework:
             self._log(LogLevel.DEBUG, "SYSTEM", f"JSON decode error: {str(e)}", "ERROR")
             return None
 
-    def _parse_json_with_name_tool(self, tool_name: str, json_str: str) -> Dict[str, Any]:
+    def _parse_json_with_name_tool(self, tool_name: str, json_str: str) -> dict[Any, Any] | None:
         try:
             params = json.loads(json_str)
             return {tool_name: params}
         except json.JSONDecodeError:
-            self.logger.warning(f"Failed to parse JSON params: {json_str}")
+            self._log(LogLevel.SYSTEM, "SYSTEM", f"Failed to parse JSON with name: {json_str}", "WARNING")
             return None
 
     def _parse_key_value_with_name_tool(self, tool_name: str, params_str: str) -> Dict[str, Any]:
         params = self._parse_key_value_pairs(params_str)
         return {tool_name: params}
 
-    def _parse_key_value_pairs(self, params_str: str) -> Dict[str, Any]:
+    @staticmethod
+    def _parse_key_value_pairs(params_str: str) -> Dict[str, Any]:
         params = {}
         pairs = re.findall(r'(?:[^\s,"]|"(?:\\.|[^"])*")+', params_str)
         for pair in pairs:
@@ -515,7 +623,8 @@ class MultiAgentFramework:
 
         extract_methods = self.config['framework'].get('tool_extract_methods', [])
         for method in extract_methods:
-            self._log(LogLevel.DEBUG, "SYSTEM", f"Attempting to extract tool using method: {method['name']}", "TOOL_EXTRACTION")
+            self._log(LogLevel.DEBUG, "SYSTEM", f"Attempting to extract tool using method: {method['name']}",
+                      "TOOL_EXTRACTION")
             regexp = method['regexp']
             parse_method = method['parse_method']
             tool_name_extractor = method['tool_name_extractor']
@@ -535,7 +644,6 @@ class MultiAgentFramework:
                     self._log(LogLevel.DEBUG, "SYSTEM", f"Extracted tool name: {tool_name}", "TOOL_EXTRACTION")
                     self._log(LogLevel.DEBUG, "SYSTEM", f"Extracted params: {params_str}", "TOOL_EXTRACTION")
 
-
                     params = None
                     if parse_method == 'json':
                         params = self._parse_json_tool(params_str)
@@ -545,12 +653,15 @@ class MultiAgentFramework:
                         params = self._parse_key_value_with_name_tool(tool_name, params_str)
 
                     if params:
-                        self._log(LogLevel.SYSTEM, "SYSTEM", f"Tool successfully extracted using method: {method['name']}", "INFO")
+                        self._log(LogLevel.SYSTEM, "SYSTEM",
+                                  f"Tool successfully extracted using method: {method['name']}", "INFO")
                         return tool_name, params
                     else:
-                        self._log(LogLevel.DEBUG, "SYSTEM", f"Method {method['name']} matched but failed to parse parameters.", "WARNING")
+                        self._log(LogLevel.DEBUG, "SYSTEM",
+                                  f"Method {method['name']} matched but failed to parse parameters.", "WARNING")
                 else:
-                    self._log(LogLevel.DEBUG, "SYSTEM", f"Failed to extract tool name or params using method: {method['name']}", "WARNING")
+                    self._log(LogLevel.DEBUG, "SYSTEM",
+                              f"Failed to extract tool name or params using method: {method['name']}", "WARNING")
             else:
                 self._log(LogLevel.DEBUG, "SYSTEM", f"Regexp didn't match for method: {method['name']}", "INFO")
 
@@ -567,57 +678,79 @@ class MultiAgentFramework:
             return {"type": "FINISH"}
         return {"type": "CONTINUE"}
 
-    def _prepare_llm_input(self, agent: Agent, input_data: Any) -> str:
-        pre_prompt = self.config.get('framework', {}).get('pre_prompt', '') if agent.use_pre_prompt else ''
-        post_prompt = self.config.get('framework', {}).get('post_prompt', '') if agent.use_post_prompt else ''
+    def _prepare_llm_input(self, agent: Agent, max_attempts: int = 3, additional_context: str = "") -> str:
+        system_prompt = agent.system_prompt
+        max_tokens = agent.llm_config.get('max_tokens', 4096)  # Default to 4096 if not specified
 
-        def get_tool_info(tool):
-            description = tool.get('description', 'No description available')
-            if 'params' in tool:
-                params = tool['params']
-            else:
-                # Get the function signature if 'params' is not available
-                func = tool['function']
-                signature = inspect.signature(func)
-                params = str(signature)
-            return f"({description}, {params})"
+        # Get pre_prompt and post_prompt from the framework config
+        pre_prompt = self.config.get('framework', {}).get('pre_prompt', '')
+        post_prompt = self.config.get('framework', {}).get('post_prompt', '')
 
-        # Prepare the replacement dictionary
-        replacements = {
-            "$otherAgents": json.dumps({name: a.role for name, a in self.agents.items() if a != agent}, indent=2),
-            "$tools": json.dumps({name: get_tool_info(tool) for name, tool in self.tools.items()}, indent=2),
-            "{agent.name}": agent.name,
-            "{agent.role}": agent.role,
-            "{agent.memory}": json.dumps(agent.memory[-5:] if agent.memory else [], indent=2),
-            "{agent.role_knowledge}": json.dumps(agent.role_knowledge, indent=2),
-            "{input_data}": str(input_data)
-        }
+        # Get replacements
+        replacements = self._get_replacements(agent)
 
-        # Function to replace placeholders in a string
-        def replace_placeholders(text):
-            for key, value in replacements.items():
-                text = text.replace(key, str(value))
-            return text
+        for attempt in range(max_attempts):
+            conversation_history = "\n".join([
+                f"{msg['role'].capitalize()}: {msg['content']}"
+                for msg in agent.conversation_history[1:]  # Skip the initial system message
+            ])
 
-        # Apply replacements to pre_prompt, agent.prompt, and post_prompt
-        pre_prompt = replace_placeholders(pre_prompt)
-        agent_prompt = replace_placeholders(agent.prompt)
-        post_prompt = replace_placeholders(post_prompt)
+            # Apply replacements to pre_prompt, post_prompt, and system_prompt
+            pre_prompt_replaced = self._apply_replacements(pre_prompt, replacements) if agent.llm_config.get('pre_prompt', True) else ''
+            post_prompt_replaced = self._apply_replacements(post_prompt, replacements) if agent.llm_config.get('post_prompt', True) else ''
+            system_prompt_replaced = self._apply_replacements(system_prompt, replacements)
 
-        # Construct the final prompt
+            # Construct the full prompt with replaced pre_prompt and post_prompt
+            prompt = f"""
+            {pre_prompt_replaced}
+    
+            {system_prompt_replaced}
+    
+            Conversation History:
+            {conversation_history}
+    
+            {additional_context}
+    
+            Assistant: Based on the conversation history, including any tool results, and your role, please provide the next response or action.
+    
+            {post_prompt_replaced}
+            """
+
+            encoded_prompt = self.tokenizer.encode(prompt)
+
+            if len(encoded_prompt) <= max_tokens:
+                return prompt
+
+            # If we exceed token limit, summarize the conversation history
+            summary_tokens = max_tokens // 2  # Use half of max_tokens for summary
+            agent.summarize_history(summary_tokens)
+
+        # If we still can't fit within token limit after max attempts, truncate
+        self._log(LogLevel.DEBUG, agent.name, f"Unable to fit conversation within {max_tokens} tokens after {max_attempts} summarization attempts. Truncating.", "TOKEN_LIMIT")
+
+        truncated_history = agent.conversation_history[-10:]  # Keep only the last 10 messages
+        conversation_history = "\n".join([
+            f"{msg['role'].capitalize()}: {msg['content']}"
+            for msg in truncated_history
+        ])
+
+        # Construct the truncated prompt with replaced pre_prompt and post_prompt
         prompt = f"""
-        {pre_prompt}
-        {agent_prompt}
-        {post_prompt}
+        {pre_prompt_replaced}
     
-        Previous Input and Tool Results:
-        {input_data}
+        {system_prompt_replaced}
     
-        Please process the above information and provide your response:
+        Conversation History (Truncated):
+        {conversation_history}
+    
+        {additional_context}
+    
+        Assistant: Based on this truncated conversation history, including any tool results, and your role, please provide the next response or action.
+    
+        {post_prompt_replaced}
         """
 
         return prompt
-
     def _extract_thoughts(self, llm_output: str) -> List[str]:
         thoughts_section = re.search(r'THOUGHTS:(.*?)(?:JSON_UPDATES:|NEXT_ACTION:|$)', llm_output, re.DOTALL)
         if thoughts_section:
