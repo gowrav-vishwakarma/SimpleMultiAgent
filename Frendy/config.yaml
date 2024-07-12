@@ -9,7 +9,8 @@ framework:
     THOUGHTS: [Your reasoning process, including analysis of any tool results]
     USE_TOOL: [Optional: Specify a tool to use, {"tool_name": {"parameter": "value", "parameter": "value"} } ]
     NEXT_AGENT: [AgentName] OR ExecutiveAssistant (Self)
-    NEXT_ACTION: FINISH OR CONTINUE
+    NEXT_ACTION: FINISH if recent conversation is just a thought or no action is needed
+    PROMPT: [In case of passing things to next agent, provide concise context here as instruction what we want next agent to do]
     Begin your response now:
 
   tool_extract_methods:

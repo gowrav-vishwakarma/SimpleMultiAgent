@@ -228,6 +228,7 @@ class MultiAgentFramework:
                     rag_config = agent_config.get('rag_config')
 
                     agent = Agent(agent_name, raw_system_prompt, raw_validation_prompt, role, llm_config, tool_names, rag_config)
+                    agent.initialize_rag_system(self.config['framework'].get('rag', {}))
                     agent.agent_connections = agent_config.get('agentConnections', [])
                     self.agents[agent_name] = agent
                     self._log(LogLevel.DEBUG, "SYSTEM", f"Loaded agent: {agent_name}", "AGENT_LOAD")
@@ -410,10 +411,10 @@ class MultiAgentFramework:
                 if next_agent:
                     self._log(LogLevel.USER, "SYSTEM", f"Handing over to agent: {next_agent.name}", "TRANSITION")
                     current_agent = next_agent
-                    if result.get('last_tool_result'):
-                        current_data = f"Previous agent used tool: {result['last_tool_result']}\n\n{result['output']}"
-                    else:
-                        current_data = result['output']
+                    # if result.get('last_tool_result'):
+                    #     current_data = f"Previous agent used tool: {result['last_tool_result']}\n\n{result['output']}"
+                    # else:
+                    current_data = result['output']
                 else:
                     self._log(LogLevel.SYSTEM, "SYSTEM", f"Warning: Specified next agent '{next_agent_name}' does not exist. Continuing with current agent.", "WARNING")
                     current_data = result['output']

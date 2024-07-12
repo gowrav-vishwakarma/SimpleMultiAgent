@@ -12,7 +12,7 @@ OUTPUT_FILE=${2:-$DEFAULT_OUTPUT_FILE}
 
 # Directories and files to exclude
 # shellcheck disable=SC2054
-EXCLUDE_DIRS_AND_FILES=(".venv" ".env" "FullStack" "tests" ".gitignore" "app_structure.json" "concatenate_files.sh" "concatenated_code.txt" "poetry.lock" "poetry.toml" "README.md" "dist")
+EXCLUDE_DIRS_AND_FILES=(".venv" ".env" "FullStack" "tests" ".gitignore" "app_structure.json" "concatenate_files.sh" "concatenated_code.txt" "poetry.lock" "poetry.toml" "README.md" "dist" "__pycache__")
 
 # Function to check if a directory or file should be excluded
 should_exclude() {
@@ -50,7 +50,8 @@ process_directory() {
         echo "  ${indent}File: ${item#$DIRECTORY/}" >> "$OUTPUT_FILE"
         echo "  ${indent}Content:" >> "$OUTPUT_FILE"
         echo "" >> "$OUTPUT_FILE"
-        sed "s/^/  $indent/" "$item" >> "$OUTPUT_FILE"  # Indent file content
+        echo "Processing file: $item"  # Add this line to print the file being processed
+        sed "s/^/  $indent/" "$item" >> "$OUTPUT_FILE" || echo "Error processing file: $item"  # Indent file content and handle errors
         echo "" >> "$OUTPUT_FILE"
         echo "  ${indent}====" >> "$OUTPUT_FILE"
         echo "" >> "$OUTPUT_FILE"
