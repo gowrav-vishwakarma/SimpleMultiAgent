@@ -1,5 +1,5 @@
 # File: main.py
-# python ./main.py run ./Frendy --verbosity user
+# python ./main.py run ./MyProject --verbosity user
 import sys
 from multiagent_framework.multiagent_cli import main as cli_main
 

@@ -51,6 +51,8 @@ llm:
   ollama:
     api_base: http://localhost:11434
     default_model: phi3:latest
+#    default_model: openhermes:latest
+#    default_model: mistral
     stream: true
 
 agents:
