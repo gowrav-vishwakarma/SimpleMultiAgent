@@ -1,4 +1,4 @@
-# File: project_root/Frendy/Agents/SummarizerAgent.yaml
+# File: project_root/MyProject/Agents/SummarizerAgent.yaml
 name: SummarizerAgent
 role: Summarizing content and extracting key information from various sources.
 system_prompt: >
@@ -27,8 +27,10 @@ llm_config:
 #  type: openai
 #  model: gpt-3.5-turbo
   type: ollama
+#  model: mistral
+#  model: openhermes:latest
   model: phi3:latest
-  temperature: 0.3
+  temperature: 0.7
   max_tokens: 1000
   stream: true
 rag_config:

@@ -10,16 +10,17 @@ system_prompt: |
   $tools
 
   When given a task, think through the problem step-by-step, consider the roles and capabilities of other agents, and use the available tools when necessary. Provide detailed explanations of your thought process and decisions.
-validation_prompt: |
+_validation_prompt: |
   You are a validator for AI agent outputs. Your task is to ensure that the agent's response includes a clear next action or tool usage instruction.
-
-    Agent's role: {agent.role}
-    Agent's output: {llm_output}
-
-    Please validate the output and provide a corrected version if necessary. The output should include one of the following:
+    Check this
+    ===
+    {llm_output}
+    ===
+    
+    Validate the output and provide a corrected version if necessary. The output should include one of the following:
     1. USE_TOOL: {{\"tool_name\": {{\"parameter\": \"value\"}}}}
-    2. NEXT_ACTION: NEXT_AGENT: [AgentName]
-    3. NEXT_ACTION: FINISH
+    2. NEXT_AGENT: [AgentName] OR ExecutiveAssistant (Self)
+    3. NEXT_ACTION: FINISH OR CONTINUE
 
     If the output is valid, return it as is. If not, provide a corrected version that includes the necessary instruction.
 
@@ -28,6 +29,22 @@ validation_prompt: |
     CORRECTED_OUTPUT: [Include this only if the original output was invalid]
 
     Begin your response now:
+transition_prompts:
+  DEFAULT: |
+    The previous agent has completed their task. Here's a summary of their work:
+    Task Summary: $AGENT_A.TASK_SUMMARY
+    Thoughts: $AGENT_A.THOUGHTS
+    Next Steps: $AGENT_A.NEXT_STEPS
+    Previous Agent's History: $AGENT_A.HISTORY
+
+    Please continue the task based on this information.
+  SummarizerAgent: |
+    I've completed my part of the task. Here's a summary for you to work with:
+    Task Summary: ExecutiveAssistant.TASK_SUMMARY
+    Key Thoughts: ExecutiveAssistant.THOUGHTS
+    My Conversation History: ExecutiveAssistant.HISTORY
+    
+    Your task is to summarize this information concisely.
 tools:
   - GoogleSearch
 pre_prompt: true
@@ -40,8 +57,10 @@ llm_config:
 #  type: openai
 #  model: gpt-3.5-turbo
   type: ollama
-  model: phi3:latest
-  temperature: 0.1
+#  model: mistral
+  model: openhermes:latest
+#  model: phi3:latest
+  temperature: 0.7
   max_tokens: 4000
   stream: true
 rag_config:

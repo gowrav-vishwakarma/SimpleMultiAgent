@@ -6,7 +6,7 @@ from multiagent_framework.rag_system import RAGSystem
 
 class Agent:
     def __init__(self, name: str, system_prompt: str, validation_prompt: str, role: str, llm_config: Dict,
-                 tools: List[Callable] = None, rag_config: Dict = None):
+                 tools: List[Callable] = None, rag_config: Dict = None, extracts: Dict = None, transition_prompts: Dict = None):
         self.raw_system_prompt = None
         self.validation_prompt = validation_prompt
         self.name = name
@@ -20,6 +20,8 @@ class Agent:
         self.agent_connections = []
         self.rag_config = rag_config
         self.rag_system = None
+        self.extracts = extracts or {}
+        self.transition_prompts = transition_prompts or {}
 
     def initialize_rag_system(self, global_rag_config: Dict):
         if self.rag_config is None:
@@ -41,6 +43,13 @@ class Agent:
 
     def set_role_knowledge(self, knowledge: Dict):
         self.role_knowledge = knowledge
+
+    def get_transition_prompt(self, next_agent: str) -> str:
+        return self.transition_prompts.get(next_agent, self.transition_prompts.get('DEFAULT', ''))
+
+    def get_history_as_string(self) -> str:
+        return "\n".join([f"{msg['role'].capitalize()}: {msg['content']}" for msg in self.conversation_history])
+
 
     def summarize_history(self, max_tokens: int = 1000):
         # Implement a method to summarize conversation history

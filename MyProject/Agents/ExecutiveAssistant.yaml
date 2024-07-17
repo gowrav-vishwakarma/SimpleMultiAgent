@@ -29,6 +29,22 @@ _validation_prompt: |
     CORRECTED_OUTPUT: [Include this only if the original output was invalid]
 
     Begin your response now:
+transition_prompts:
+  DEFAULT: |
+    The previous agent has completed their task. Here's a summary of their work:
+    Task Summary: $AGENT_A.TASK_SUMMARY
+    Thoughts: $AGENT_A.THOUGHTS
+    Next Steps: $AGENT_A.NEXT_STEPS
+    Previous Agent's History: $AGENT_A.HISTORY
+
+    Please continue the task based on this information.
+  SummarizerAgent: |
+    I've completed my part of the task. Here's a summary for you to work with:
+    Task Summary: ExecutiveAssistant.TASK_SUMMARY
+    Key Thoughts: ExecutiveAssistant.THOUGHTS
+    My Conversation History: ExecutiveAssistant.HISTORY
+    
+    Your task is to summarize this information concisely.
 tools:
   - GoogleSearch
 pre_prompt: true
@@ -41,8 +57,10 @@ llm_config:
 #  type: openai
 #  model: gpt-3.5-turbo
   type: ollama
+#  model: mistral
+#  model: openhermes:latest
   model: phi3:latest
-  temperature: 0.1
+  temperature: 0.7
   max_tokens: 4000
   stream: true
 rag_config:

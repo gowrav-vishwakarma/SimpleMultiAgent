@@ -1,4 +1,4 @@
-# File: project_root/Frendy/Tools/GoogleSearch.py
+# File: project_root/MyProject/Tools/GoogleSearch.py
 import sys
 import os
 import logging

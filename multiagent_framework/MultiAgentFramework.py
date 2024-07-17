@@ -63,6 +63,7 @@ class MultiAgentFramework:
         self.global_rag_config = self.config['framework'].get('rag', {})
         self.rag_system = None
         self.tokenizer = tiktoken.get_encoding("cl100k_base")
+        self.initial_prompt = ""  # Add this line to initialize the initial_prompt attribute
         if self.global_rag_config.get('enabled', False):
             self.rag_system = RAGSystem(self.global_rag_config)
         self.load_components()
@@ -226,8 +227,10 @@ class MultiAgentFramework:
                     tool_names = agent_config.get('tools', [])
                     llm_config = agent_config.get('llm_config', {})
                     rag_config = agent_config.get('rag_config')
+                    extracts = agent_config.get('extracts',{})
+                    transition_prompts = agent_config.get('transition_prompts', {})
 
-                    agent = Agent(agent_name, raw_system_prompt, raw_validation_prompt, role, llm_config, tool_names, rag_config)
+                    agent = Agent(agent_name, raw_system_prompt, raw_validation_prompt, role, llm_config, tool_names, rag_config, extracts, transition_prompts)
                     agent.initialize_rag_system(self.config['framework'].get('rag', {}))
                     agent.agent_connections = agent_config.get('agentConnections', [])
                     self.agents[agent_name] = agent
@@ -250,25 +253,43 @@ class MultiAgentFramework:
             prompt = prompt.replace(key, str(value))  # Convert value to string to ensure it's replaceable
         return prompt
 
-    def _get_replacements(self, agent: Agent) -> Dict[str, str]:
-        def get_tool_info(tool):
-            description = tool.get('description', 'No description available')
-            if 'params' in tool:
-                params = tool['params']
-            else:
-                func = tool['function']
-                signature = inspect.signature(func)
-                params = str(signature)
-            return f"({description}, {params})"
+    def _get_tool_info(self, tool):
+        description = tool.get('description', 'No description available')
+        if 'params' in tool:
+            params = tool['params']
+        else:
+            func = tool['function']
+            signature = inspect.signature(func)
+            params = str(signature)
+        return f"({description}, {params})"
 
+    def _get_replacements(self, agent: Agent) -> Dict[str, str]:
         replacements = {
             "$otherAgents": json.dumps({name: a.role for name, a in self.agents.items() if a != agent}, indent=2),
-            "$tools": json.dumps({name: get_tool_info(tool) for name, tool in self.tools.items()}, indent=2),
+            "$tools": json.dumps({name: self._get_tool_info(tool) for name, tool in self.tools.items()}, indent=2),
             "{agent.name}": agent.name,
             "{agent.role}": agent.role,
             "{agent.role_knowledge}": json.dumps(agent.role_knowledge, indent=2),
         }
+
+        # Add replacements for other agents' thoughts, history, and extracts
+        for other_agent_name, other_agent in self.agents.items():
+            replacements[f"${other_agent_name}.THOUGHTS"] = "\n".join(other_agent.thought_process)
+            replacements[f"${other_agent_name}.HISTORY"] = other_agent.get_history_as_string()
+            for extract_key in other_agent.extracts:
+                replacements[f"${other_agent_name}.{extract_key}"] = self._get_latest_extract(other_agent, extract_key)
+
+        replacements["$USER_PROMPT"] = self.initial_prompt
+
         return replacements
+
+    def _get_latest_extract(self, agent: Agent, key: str) -> str:
+        for message in reversed(agent.conversation_history):
+            if message['role'] == 'assistant':
+                extract = self._extract_information(message['content'], key, agent.extracts[key])
+                if extract:
+                    return extract
+        return ""
 
     def validate_agent_output(self, agent: Agent, llm_output: str) -> Dict[str, Any]:
         if not agent.validation_prompt:
@@ -385,6 +406,7 @@ class MultiAgentFramework:
                             agent.set_role_knowledge(role_knowledge)
 
     def run_system(self, initial_input: str):
+        self.initial_prompt = initial_input  # Update this line to set the initial_prompt
         self._log(LogLevel.SYSTEM, "SYSTEM", f"Starting system with initial input: {initial_input}", "START")
         current_agent = self._determine_starting_agent(initial_input)
         current_data = initial_input
@@ -486,6 +508,12 @@ class MultiAgentFramework:
             for thought in thoughts:
                 agent.add_thought(thought)
                 self._log(LogLevel.DEBUG, agent.name, f"Thought: {thought}", "THOUGHT")
+
+            # Extract other information based on agent's 'extracts' configuration
+            extracted_info = {}
+            for extract_key, extract_pattern in agent.extracts.items():
+                extracted_info[extract_key] = self._extract_information(llm_output, extract_key, extract_pattern)
+
 
             json_updates = self._extract_json_updates(llm_output)
             for file_path, update_data in json_updates.items():
@@ -752,6 +780,12 @@ class MultiAgentFramework:
         """
 
         return prompt
+
+    def _extract_information(self, text: str, key: str, pattern: str) -> str:
+        match = re.search(pattern, text, re.DOTALL | re.IGNORECASE)
+        return match.group(1).strip() if match else ""
+
+
     def _extract_thoughts(self, llm_output: str) -> List[str]:
         thoughts_section = re.search(r'THOUGHTS:(.*?)(?:JSON_UPDATES:|NEXT_ACTION:|$)', llm_output, re.DOTALL)
         if thoughts_section:
@@ -785,8 +819,13 @@ class MultiAgentFramework:
         next_action = result.get('next_action', {})
         if next_action.get('type') == "NEXT_AGENT":
             next_agent_name = next_action.get('agent')
+            current_agent = self.agents[result['agent']]
             next_agent = self.agents.get(next_agent_name)
             if next_agent:
+                transition_prompt = current_agent.get_transition_prompt(next_agent_name)
+                replacements = self._get_replacements(current_agent)
+                transition_prompt = self._apply_replacements(transition_prompt, replacements)
+                next_agent.add_to_history("system", transition_prompt)
                 return next_agent
             else:
                 print(f"Warning: Specified next agent '{next_agent_name}' does not exist.")
